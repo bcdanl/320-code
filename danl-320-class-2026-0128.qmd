@@ -1,0 +1,250 @@
+---
+title: Class Script
+subtitle: Dummy Variable Regression
+author:
+  - name: Byeong-Hak Choe
+    
+date: last-modified
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+
+
+# Essential Shortcuts
+
+- Adding a code chunk
+  - Mac: command + shift + I
+  - Windows: Ctrl + Shift + I
+
+- We write code within a code chunk  
+```{r}
+
+```
+
+- To run entire lines of code within a code chunk
+  - Mac: command + shift + return
+  - Windows: Ctrl + Shift + Enter
+
+
+- To run a current line of code within a code chunk
+  - Mac: command + return
+  - Windows: Ctrl + Enter
+
+
+```{r}
+library(tidyverse)
+library(skimr)
+
+```
+
+
+# Linear Regression in R
+
+```{r}
+sale_df <- read_csv("https://bcdanl.github.io/data/home_sales_nyc.csv")
+set.seed(123)   # for replication
+
+sale_df <- sale_df |>
+  mutate(gp = runif(n()))
+
+dtrain <- sale_df |> filter(gp >= 0.4)  # ~60%
+dtest  <- sale_df |> filter(gp <  0.4)  # ~40%
+
+nrow(dtrain) / nrow(sale_df)
+```
+
+
+
+```{r}
+colnames(sale_df)
+m1 <- lm(sale_price ~ gross_square_feet,
+         data = dtrain)
+summary(m1)
+```
+
+```{r}
+#| results: asis
+stargazer(
+  m1,
+  type = "html",
+  title = "Simple Linear Regression (Training Data)",
+  dep.var.labels = "Sale Price"
+)
+```
+
+
+```{r}
+stargazer(
+  m1,
+  type = "text",
+  title = "Simple Linear Regression (Training Data)",
+  dep.var.labels = "Sale Price"
+)
+```
+
+# Prediction
+
+```{r}
+dtest <- dtest |> 
+  mutate(pred_m1 = predict(m1, newdata = dtest))
+
+# Test RMSE
+rmse_m1 <- dtest |> 
+  mutate(resid_sq = (sale_price - pred_m1)^2) |> 
+  summarize(
+    rmse_m1 = mean(resid_sq)
+    )
+```
+
+
+```{r}
+df_pred <- augment(m1)  # broom::augment()
+```
+
+
+
+# Multivariate Linear Regression
+
+```{r}
+#| results: asis
+
+m2 <- lm(sale_price ~ gross_square_feet + age, data = dtrain)
+
+stargazer(
+  m1, m2,
+  type = "html",
+  title = "Simple vs Multivariate Regression (Training Data)"
+)
+```
+
+## Dummy Variable Regression
+
+
+```{r}
+#| results: asis
+
+# Set reference level (omit dummy for Manhattan)
+dtrain <- dtrain |>
+  mutate(borough_name = factor(borough_name)) |> 
+  mutate(borough_name = relevel(borough_name, ref = "Manhattan"))
+
+dtest <- dtest |>
+  mutate(borough_name = factor(borough_name)) |> 
+  mutate(borough_name = relevel(borough_name, ref = "Manhattan"))
+
+m3 <- lm(sale_price ~ gross_square_feet + age + borough_name, data = dtrain)
+
+stargazer(
+  m3,
+  type = "html",
+  title = "Multivariate Regression with Borough Dummies (Reference = Manhattan)",
+  dep.var.labels = "sale_price",
+  digits = 3
+)
+```
+
+
+
+```{r}
+#| results: asis
+
+# Set reference level (omit dummy for Manhattan)
+dtrain <- dtrain |>
+  mutate(borough_name = factor(borough_name)) |> 
+  mutate(borough_name = relevel(borough_name, ref = "Bronx"))
+
+dtest <- dtest |>
+  mutate(borough_name = factor(borough_name)) |> 
+  mutate(borough_name = relevel(borough_name, ref = "Bronx"))
+
+m3 <- lm(sale_price ~ gross_square_feet + age + borough_name, data = dtrain)
+
+stargazer(
+  m3,
+  type = "html",
+  title = "Multivariate Regression with Borough Dummies (Reference = Bronx)",
+  dep.var.labels = "sale_price",
+  digits = 3
+)
+```
+
+
+
+
+# Residual plots
+
+```{r}
+aug_m2 <- augment(m2)    # broom::augment()
+
+ggplot(aug_m2, aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values (Model 2)",
+    y = "Residuals",
+    title = "Residual Plot for Model 2"
+  )
+```
+
+
+# Coefficient Plots
+
+```{r}
+#| fig-height: 10
+coef_df <- tidy(m3, conf.int = TRUE)
+
+ggplot(coef_df |> filter(term != "(Intercept)"),
+       aes(x = reorder(term, estimate), y = estimate, ymin = conf.low, ymax = conf.high)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    x = "Terms",
+    y = "Estimate (95% CI)",
+    title = "Coefficient Plot (Model with Borough Dummies)"
+  )
+```
+
+

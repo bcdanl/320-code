@@ -1,0 +1,123 @@
+---
+title: Class Script
+subtitle: Linear Regression
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-02-02
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+
+
+```{r}
+library(tidyverse)
+library(stargazer)
+oj <- read_csv('https://bcdanl.github.io/data/dominick_oj_ad.csv')
+
+oj_m1 <- lm(log(sales) ~ brand + log(price), 
+            data = oj)
+
+oj_m2 <- lm(log(sales) ~ brand * log(price), 
+            data = oj)
+```
+
+
+```{r}
+
+stargazer(
+  oj_m1, oj_m2,
+  type = "text",
+  title = "OJ Model 1 vs Model 2 (Brand × log(price))",
+  dep.var.labels = "log(sales)",
+  digits = 3
+)
+
+```
+
+```{r}
+#| results: asis
+stargazer(
+  oj_m1, oj_m2,
+  type = "html",
+  title = "OJ Model 1 vs Model 2 (Brand × log(price))",
+  dep.var.labels = "log(sales)",
+  digits = 3
+)
+
+```
+
+
+```{r}
+coef(oj_m2)['log(price)'] + coef(oj_m2)['brandtropicana:log(price)']
+
+```
+
+```{r}
+
+oj_m3 <- lm(log(sales) ~ brand * log(price) * ad, 
+            data = oj)
+
+stargazer(
+  oj_m3,
+  type = "text",
+  title = "OJ Model 3: brand × log(price) × ad",
+  dep.var.labels = "log(sales)",
+  digits = 3
+)
+```
+
+`#| results: asis` chunk option is needed to print out a stargazer regression table with `type = "html"` option in HTML:
+
+```{r}
+#| results: asis
+stargazer(
+  oj_m3,
+  type = "html",
+  title = "OJ Model 3: brand × log(price) × ad",
+  dep.var.labels = "log(sales)",
+  digits = 3
+)
+```
+
