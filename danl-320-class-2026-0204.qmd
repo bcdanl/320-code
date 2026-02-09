@@ -1,6 +1,6 @@
 ---
 title: Class Script
-subtitle: "Linear Regression - Classworks 2 & 3"
+subtitle: "Linear Regression - Classwork 2"
 author:
   - name: Byeong-Hak Choe
     
@@ -16,7 +16,7 @@ execute:
 
 format:
   html:
-    code-fold: true
+    code-fold: false
     toc: true
     toc-title: "Contents"
     toc-expand: 3

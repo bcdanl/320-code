@@ -1,0 +1,207 @@
+---
+title: Class Script
+subtitle: "Linear Regression - Classwork 3"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-02-09
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+
+# R packages
+```{r}
+library(tidyverse)
+library(broom)
+library(stargazer)
+library(skimr)
+library(DT)
+```
+
+
+# Classwork 3
+
+```{r}
+df <- read_csv("https://bcdanl.github.io/data/dominick_oj_feat.csv")
+```
+
+## Q1
+
+- continuous
+  - `sales`
+  - `price`
+  
+- categorical
+  - `brand`
+  - `ad_status`
+  
+```{r}
+df |> 
+  group_by(brand) |> 
+  skim()
+```
+
+
+## Q2 & Q3
+
+```{r}
+
+set.seed(1234)
+
+df <- df |> 
+  mutate(rnd = runif(n()),
+         brand = factor(brand,
+                        levels = 
+                          c("dominicks", "minute.maid", "tropicana")),
+         ad_status = factor(ad_status,
+                            levels = c("No Ad", "Ad")))
+
+dtrain <- df |> 
+  filter(rnd > .3) |> 
+  select(-rnd)
+
+dtest <- df |> 
+  filter(rnd <= .3) |> 
+  select(-rnd)
+```
+
+## Q4
+
+```{r}
+m1 <- lm(log(sales) ~ brand + log(price),
+         data = dtrain)
+m2 <- lm(log(sales) ~ brand * log(price),
+         data = dtrain)
+m3 <- lm(log(sales) ~ brand * ad_status * log(price),
+         data = dtrain)
+```
+
+
+```{r}
+stargazer(m1, m2, m3, 
+          type = "text")
+```
+
+
+## Q5
+
+```{r}
+
+```
+
+
+
+## Q6
+
+```{r}
+
+m1_pred <- augment(m1, newdata = dtest) 
+
+m1_rmse <- augment(m1, newdata = dtest) |> 
+  mutate(.resid_sq = .resid^2) |> 
+  summarise(rmse = sqrt(mean(.resid_sq, na.rm = T)))
+
+m2_rmse <- augment(m2, newdata = dtest) |> 
+  mutate(.resid_sq = .resid^2) |> 
+  summarise(rmse = sqrt(mean(.resid_sq, na.rm = T)))
+
+m3_rmse <- augment(m3, newdata = dtest) |> 
+  mutate(.resid_sq = .resid^2) |> 
+  summarise(rmse = sqrt(mean(.resid_sq, na.rm = T)))
+
+m1_rmse # 0.79
+m2_rmse # 0.78
+m3_rmse # 0.73
+
+```
+## Q7
+
+```{r}
+m1_pred_test <- augment(m1, newdata = dtest)
+
+m1_pred_test |> 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Residual Plot for Model 1"
+  )
+```
+
+
+```{r}
+m2_pred_test <- augment(m2, newdata = dtest)
+
+m2_pred_test |> 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Residual Plot for Model 2"
+  )
+```
+
+
+```{r}
+m3_pred_test <- augment(m3, newdata = dtest)
+
+m3_pred_test |> 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Residual Plot for Model 3"
+  )
+```
+
+
