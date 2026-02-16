@@ -1,0 +1,205 @@
+---
+title: Class Script
+subtitle: "Logistic Regression"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-02-11
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+
+# R packages
+```{r}
+library(tidyverse)
+library(broom)
+library(stargazer)
+library(margins)
+library(yardstick)
+library(WVPlots)
+library(DT)
+library(rmarkdown)
+library(hrbrthemes)
+library(ggthemes)
+
+theme_set(
+  theme_ipsum()
+)
+
+scale_colour_discrete <- function(...) scale_color_colorblind(...)
+scale_fill_discrete <- function(...) scale_fill_colorblind(...)
+```
+
+
+
+```{r}
+df <- read_csv("https://bcdanl.github.io/data/NatalRiskData.csv")
+```
+
+
+
+```{r}
+df <- df |>
+  mutate(
+    # set full factor levels using known categories
+    GESTREC3 = factor(GESTREC3, levels = c(">= 37 weeks", "< 37 weeks")),
+    DPLURAL  = factor(DPLURAL,  levels = c("single", "twin", "triplet or higher")),
+
+    # choose reference categories (baseline)
+    GESTREC3 = relevel(GESTREC3, ref = ">= 37 weeks"),
+    DPLURAL  = relevel(DPLURAL,  ref = "single")
+  )
+```
+
+
+```{r}
+set.seed(1234)
+
+df_split <- df |>
+  mutate(rnd = runif(n()))
+
+dtrain <- df_split |> filter(rnd > 0.3) |> select(-rnd)
+dtest  <- df_split |> filter(rnd <= 0.3) |> select(-rnd)
+```
+
+
+```{r}
+model <- glm(
+  atRisk ~ PWGT + UPREVIS + CIG_REC +
+           ULD_MECO + ULD_PRECIP + ULD_BREECH +
+           URF_DIAB + URF_CHYPER + URF_PHYPER + URF_ECLAM +
+           GESTREC3 + DPLURAL,
+  data = dtrain,
+  family = binomial(link = "logit")
+)
+```
+
+
+```{r}
+#| results: asis
+
+stargazer(model, 
+          type = "text")
+```
+
+
+```{r}
+summary(model)
+```
+
+```{r}
+model_betas <- tidy(model, 
+                    conf.int = T)  # conf.level = 0.95 (default)
+
+model_betas_90ci <- tidy(model, 
+                       conf.int = T,
+                       conf.level = 0.90)
+
+model_betas_99ci <- tidy(model, 
+                       conf.int = T,
+                       conf.level = 0.99)
+```
+
+
+```{r}
+month_ci <- bind_rows(
+  model_betas_90ci |> mutate(ci = "90%"),
+  model_betas      |> mutate(ci = "95%"),
+  model_betas_99ci |> mutate(ci = "99%")
+) |>
+  mutate(ci = factor(ci, levels = c("90%", "95%", "99%")))
+
+ggplot(
+  data = month_ci |> 
+    filter(!str_detect(term, "Intercept")),
+  aes(
+    y = term,
+    x = estimate,
+    xmin = conf.low,
+    xmax = conf.high,
+    color = ci
+  )
+) +
+  geom_vline(xintercept = 0, color = "maroon", linetype = 2) +
+  geom_pointrange(
+    position = position_dodge(width = 0.6)
+  ) +
+  labs(
+    color = "CI level",
+    y = ""
+  ) 
+```
+
+
+
+
+```{r}
+me <- margins(model)
+sum_me <- summary(me)
+sum_me
+```
+
+```{r}
+me <- margins(model)
+sum_me <- summary(me)
+sum_me
+```
+
+
+
+
+```{r}
+summary(
+  margins(model, 
+          variables = c("PWGT", "UPREVIS", "CIG_REC"))
+)
+```
+
+
+
+
+
+
+
+
