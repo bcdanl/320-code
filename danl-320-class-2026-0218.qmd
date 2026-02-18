@@ -1,0 +1,491 @@
+---
+title: Class Script
+subtitle: "Logistic Regression"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-02-18
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+# Classwork 4
+
+## R packages
+```{r}
+library(tidyverse)
+library(broom)
+library(stargazer)
+library(margins)
+library(yardstick)
+library(WVPlots)
+library(DT)
+library(rmarkdown)
+library(hrbrthemes)
+library(ggthemes)
+
+theme_set(
+  theme_ipsum()
+)
+
+scale_colour_discrete <- function(...) scale_color_colorblind(...)
+scale_fill_discrete <- function(...) scale_fill_colorblind(...)
+```
+
+## Data
+
+```{r}
+titanic <- read_csv("https://bcdanl.github.io/data/titanic_details.csv")
+
+titanic |> 
+  rmarkdown::paged_table()
+```
+
+## Part A. Quick EDA (Warm-up)
+
+
+```{r}
+titanic |>  
+  count(survived)
+```
+
+```{r}
+342 / (342 + 549)
+```
+
+
+
+```{r}
+titanic |>  
+  count(survived) |> 
+  mutate(tot = sum(n)) |> 
+  mutate(prop = n / tot)
+```
+
+```{r}
+titanic |>  
+  count(gender, survived)
+```
+
+
+```{r}
+titanic |>  
+  count(gender, survived) |> 
+  group_by(gender) |> 
+  mutate(tot = sum(n)) |> 
+  mutate(prop = n / tot)
+```
+
+```{r}
+0.7420382 - 0.1889081
+```
+
+
+
+```{r}
+titanic |>  
+  count(class, survived) |> 
+  group_by(class) |> 
+  mutate(tot = sum(n)) |> 
+  mutate(prop = n / tot)
+```
+
+```{r}
+titanic |>  
+  count(class, gender, survived)
+```
+
+
+```{r}
+df_sum <- titanic |>  
+  count(class, gender, survived) |> 
+  group_by(class, gender) |> 
+  mutate(tot = sum(n)) |> 
+  mutate(prop = n / tot)
+```
+
+
+
+```{r}
+titanic <- titanic |> 
+  mutate(class = factor(class))
+
+levels(titanic$class)
+```
+
+
+## Part B. Logistic Regression Models
+
+### B1) Split
+
+```{r}
+titanic <- titanic |> 
+  mutate(rnd = runif(n()))
+
+
+dtrain <- titanic |> 
+  filter(rnd >= .2)
+
+dtest <- titanic |> 
+  filter(rnd < .2)
+```
+
+
+### B2) Baseline model
+
+```{r}
+model1 <- glm(
+  survived ~ gender + class,
+  data = dtrain,
+  family = binomial(link = "logit")
+)
+```
+
+
+```{r}
+stargazer(model1,
+          type = "text")
+```
+
+
+## Part C. Average Marginal Effects (AME)
+
+#### C1) Compute AMEs
+
+```{r}
+sum_me <- summary(
+  margins(model1)
+)
+
+sum_me
+```
+
+
+```{r}
+df_ame <- sum_me |>
+  as_tibble() |>
+  rename(
+    term = factor,
+    ame  = AME,
+    se   = SE
+  )
+
+# Pair each level with the correct z (NOT a Cartesian product)
+ci_levels <- tibble(
+  level = c("90%", "95%", "99%"),
+  zcrit = c(1.645, 1.96, 2.576)
+)
+
+df_ame_ci <- df_ame |>
+  tidyr::crossing(level = ci_levels$level) |>
+  left_join(ci_levels, by = "level") |>
+  mutate(
+    conf.low  = ame - zcrit * se,
+    conf.high = ame + zcrit * se
+  )
+
+ggplot(df_ame_ci,
+       aes(x = fct_reorder(term, ame), y = ame)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_pointrange(
+    aes(ymin = conf.low, ymax = conf.high, color = level),
+    position = position_dodge(width = 0.6)
+  ) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = "Average marginal effect (AME)",
+    color = "CI level",
+    title = "Average Marginal Effects (90/95/99% CIs)"
+  )
+```
+#### C2) AMEs for a richer model
+
+```{r}
+model2 <- glm(
+  survived ~ gender + class + age + fare,
+  data = dtrain,
+  family = binomial(link = "logit")
+)
+
+summary(
+  margins(model2)
+)
+
+```
+
+
+
+```{r}
+-0.0058 * 100 * 10
+```
+
+## Part D. Prediction
+
+```{r}
+df_cm <- model2 |> 
+  augment(newdata = dtest,
+          type.predict = "response")
+
+```
+
+
+
+#### Double Density 
+
+```{r}
+threshold <- 0.43
+
+# dtest <- dtest |>
+#   mutate(.fitted = predict(model, 
+#                            newdata = dtest, 
+#                            type = "response"))
+
+df_cm |> 
+  ggplot(aes(x = .fitted, 
+             fill = factor(survived))) +
+  geom_density(alpha = 0.35) +
+  geom_vline(xintercept = threshold, linetype = "dashed") +
+  labs(
+    x = "Predicted probability",
+    y = "Density",
+    fill = "Actual class",
+    title = "Training set: predicted probabilities by actual class"
+  )
+```
+
+## Part E. Classification at a Threshold
+
+
+```{r}
+threshold <- 0.5
+
+df_cm <- model2 |>
+  augment(newdata = dtest,
+          type.predict = "response") |> 
+  mutate(
+    actual = factor(survived, 
+                    levels = c(0, 1), 
+                    labels = c("not survived", "survived")),
+    pred   = factor(if_else(.fitted > threshold, 1, 0),
+                    levels = c(0, 1), 
+                    labels = c("not survived", "survived"))
+  )
+
+conf_mat <- table(truth = df_cm$actual,
+                  prediction = df_cm$pred)
+conf_mat
+```
+
+```{r}
+base_rate   <- mean(dtest$survived)
+
+accuracy <- (conf_mat[1,1] + conf_mat[2,2]) / sum(conf_mat) 
+precision <- conf_mat[2,2] / sum(conf_mat[,2]) 
+recall <- conf_mat[2,2] / sum(conf_mat[2,]) 
+specificity <- conf_mat[1,1] / sum(conf_mat[1,]) 
+enrichment <- precision / base_rate
+
+
+df_class_metric <- 
+  data.frame(
+    metric = c("Base rate", 
+               "Accuracy", 
+               "Precision", 
+               "Recall", 
+               "Specificity", 
+               "Enrichment"),
+    value  = c(base_rate, 
+               accuracy, 
+               precision, 
+               recall, 
+               specificity, 
+               enrichment)
+    )
+
+df_class_metric |> 
+  mutate(value = round(value, 4)) |> 
+  rmarkdown::paged_table()
+```
+
+
+
+### Threshold 0.43
+
+
+```{r}
+threshold <- 0.43
+
+df_cm <- model2 |>
+  augment(newdata = dtest,
+          type.predict = "response") |> 
+  mutate(
+    actual = factor(survived, 
+                    levels = c(0, 1), 
+                    labels = c("not survived", "survived")),
+    pred   = factor(if_else(.fitted > threshold, 1, 0),
+                    levels = c(0, 1), 
+                    labels = c("not survived", "survived"))
+  )
+
+conf_mat <- table(truth = df_cm$actual,
+                  prediction = df_cm$pred)
+conf_mat
+```
+
+```{r}
+base_rate   <- mean(dtest$survived)
+
+accuracy <- (conf_mat[1,1] + conf_mat[2,2]) / sum(conf_mat) 
+precision <- conf_mat[2,2] / sum(conf_mat[,2]) 
+recall <- conf_mat[2,2] / sum(conf_mat[2,]) 
+specificity <- conf_mat[1,1] / sum(conf_mat[1,]) 
+enrichment <- precision / base_rate
+
+
+df_class_metric <- 
+  data.frame(
+    metric = c("Base rate", 
+               "Accuracy", 
+               "Precision", 
+               "Recall", 
+               "Specificity", 
+               "Enrichment"),
+    value  = c(base_rate, 
+               accuracy, 
+               precision, 
+               recall, 
+               specificity, 
+               enrichment)
+    )
+
+df_class_metric |> 
+  mutate(value = round(value, 4)) |> 
+  rmarkdown::paged_table()
+```
+
+
+
+
+### Threshold 0.3
+
+
+```{r}
+threshold <- 0.3
+
+df_cm <- model2 |>
+  augment(newdata = dtest,
+          type.predict = "response") |> 
+  mutate(
+    actual = factor(survived, 
+                    levels = c(0, 1), 
+                    labels = c("not survived", "survived")),
+    pred   = factor(if_else(.fitted > threshold, 1, 0),
+                    levels = c(0, 1), 
+                    labels = c("not survived", "survived"))
+  )
+
+conf_mat <- table(truth = df_cm$actual,
+                  prediction = df_cm$pred)
+conf_mat
+```
+
+```{r}
+base_rate   <- mean(dtest$survived)
+
+accuracy <- (conf_mat[1,1] + conf_mat[2,2]) / sum(conf_mat) 
+precision <- conf_mat[2,2] / sum(conf_mat[,2]) 
+recall <- conf_mat[2,2] / sum(conf_mat[2,]) 
+specificity <- conf_mat[1,1] / sum(conf_mat[1,]) 
+enrichment <- precision / base_rate
+
+
+df_class_metric <- 
+  data.frame(
+    metric = c("Base rate", 
+               "Accuracy", 
+               "Precision", 
+               "Recall", 
+               "Specificity", 
+               "Enrichment"),
+    value  = c(base_rate, 
+               accuracy, 
+               precision, 
+               recall, 
+               specificity, 
+               enrichment)
+    )
+
+df_class_metric |> 
+  mutate(value = round(value, 4)) |> 
+  rmarkdown::paged_table()
+```
+
+
+## Part F. ROC Curve and AUC
+
+
+```{r}
+roc <- ROCPlot(df_cm,
+               xvar = '.fitted',
+               truthVar = 'survived',
+               truthTarget = 1,
+               title = 'Classifier performance')
+
+# ROC with vertical line
+roc + 
+  geom_vline(xintercept = 1 - specificity, 
+             color="maroon", linetype = 2)
+
+roc$plot_env$auc
+
+```
+
+```{r}
+library(pROC)
+roc_obj <- roc(df_cm$survived, df_cm$.fitted)
+auc(roc_obj)
+```
+
+
+
