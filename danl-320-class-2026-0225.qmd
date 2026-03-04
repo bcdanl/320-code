@@ -4,7 +4,7 @@ subtitle: "Logistic Regression"
 author:
   - name: Byeong-Hak Choe
     
-date: 2026-02-23
+date: 2026-02-25
 
 execute: 
   echo: true

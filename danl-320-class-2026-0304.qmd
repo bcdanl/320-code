@@ -1,0 +1,473 @@
+---
+title: Class Script
+subtitle: "Logistic Regression"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-02-25
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+
+# Classwork 6
+
+```{r}
+library(Matrix) # to create a sparse matrix
+
+library(tidyverse)
+library(broom)
+library(stargazer)
+library(glmnet) 
+library(gamlr)   # a companion package for glmnet
+
+library(DT)
+library(rmarkdown)
+library(hrbrthemes)
+library(ggthemes)
+
+theme_set(
+  theme_ipsum()
+)
+
+scale_colour_discrete <- function(...) scale_color_colorblind(...)
+scale_fill_discrete <- function(...) scale_fill_colorblind(...)
+```
+
+```{r}
+url <- "https://bcdanl.github.io/data/browser-online-shopping.zip"
+dest <- file.path(tempdir(), "browser-online-shopping.zip")
+
+download.file(url, destfile = dest, mode = "wb")
+df <- readr::read_csv(dest)
+```
+
+
+```{r}
+df |> 
+  transmute(row_sum = rowSums(across(-1))) |> # Row-wise sum, except for the first column
+  skim()
+```
+
+```{r}
+set.seed(1)
+
+df <- df |> 
+  mutate(rnd = runif(n()))
+
+dtrain <- df |> 
+  filter(rnd > .2) |> 
+  select(-rnd)
+dtest <- df |> 
+  filter(rnd <= .2) |> 
+  select(-rnd)
+
+# as.matrix() convert a data.frame into a matrix
+X_train <- dtrain |> select(-spend) |> as.matrix()
+X_test  <- dtest  |> select(-spend) |> as.matrix()
+
+y_train <- log(dtrain$spend)
+y_test  <- log(dtest$spend)
+```
+
+
+
+## Q1. Linear Reg
+```{r}
+
+model <- lm(log(spend) ~ . ,
+            data = dtrain)
+```
+
+```{r}
+model |> 
+  glance()
+```
+
+
+```{r}
+betas_linear <- model |> 
+  tidy() |> 
+  mutate(
+    stars = case_when(
+      p.value < .01 ~ "***",  # smallest p-values first
+      p.value < .05 ~ "**",
+      p.value < .1 ~ "*",
+      TRUE ~ ""
+    )
+  ) |> 
+  select(term, estimate, stars) |> 
+  rename(beta = estimate)
+```
+
+
+## Q2. Regularization 
+
+```{r}
+model_lasso <- cv.glmnet(X_train, y_train,
+                         alpha = 1,
+                         nfolds = 5,
+                         intercept = FALSE)
+
+model_ridge <- cv.glmnet(X_train, y_train,
+                         alpha = 0,
+                         nfolds = 5,
+                         intercept = FALSE)
+```
+
+## Q3
+
+### Cross-validation error curves
+```{r}
+# Run all at once
+
+par(mar = c(5.1, 4.1, 6.1, 2.1))  # title margin
+plot(model_lasso, main = "Lasso")
+abline(v = log(model_lasso$lambda.min), lty = 2)
+abline(v = log(model_lasso$lambda.1se), lty = 3)
+legend("bottomright",
+       legend = c("lambda.min", "lambda.1se"),
+       lty = c(2, 3),
+       bty = "n")
+```
+
+
+```{r}
+# Run all at once
+
+par(mar = c(5.1, 4.1, 6.1, 2.1))  # title margin
+plot(model_ridge, main = "Ridge")
+abline(v = log(model_ridge$lambda.min), lty = 2)
+abline(v = log(model_ridge$lambda.1se), lty = 3)
+legend("bottomright",
+       legend = c("lambda.min", "lambda.1se"),
+       lty = c(2, 3),
+       bty = "n")
+```
+
+### Coefficient paths
+
+```{r}
+# Run all at once
+
+par(mar = c(5.1, 4.1, 6.1, 2.1))  # title margin
+plot(model_lasso$glmnet.fit, xvar = "lambda",
+     main = "Lasso")
+abline(v = log(model_lasso$lambda.min), lty = 2)
+abline(v = log(model_lasso$lambda.1se), lty = 3)
+legend("topright",
+       legend = c("lambda.min", "lambda.1se"),
+       lty = c(2, 3),
+       bty = "n")
+```
+
+```{r}
+# Run all at once
+
+par(mar = c(5.1, 4.1, 6.1, 2.1))  # title margin
+plot(model_ridge$glmnet.fit, xvar = "lambda",
+     main = "Ridge")
+abline(v = log(model_ridge$lambda.min), lty = 2)
+abline(v = log(model_ridge$lambda.1se), lty = 3)
+legend("topright",
+       legend = c("lambda.min", "lambda.1se"),
+       lty = c(2, 3),
+       bty = "n")
+```
+
+
+### The number of non-zero betas as a function of a lambda
+
+```{r}
+model_lasso |> 
+  tidy() |> 
+  ggplot(aes(x = log(lambda), y = nzero)) +
+  geom_line() +
+  labs(title = "Lasso")
+```
+
+
+```{r}
+model_ridge |> 
+  tidy() |> 
+  ggplot(aes(x = log(lambda), y = nzero)) +
+  geom_line() +
+  labs(title = "Ridge")
+```
+
+### Coefficient plots with the top 20 websites.
+
+```{r}
+
+# Lasso
+beta_lasso_1se <- coef(model_lasso, 
+                       s = "lambda.1se")  # default
+beta_lasso_min <- coef(model_lasso, 
+                       s = "lambda.min")
+
+# Ridge
+beta_ridge_1se <- coef(model_ridge)  # default: "lambda.1se"
+beta_ridge_min <- coef(model_ridge, 
+                       s = "lambda.min")
+
+
+betas <- data.frame(
+  term = rownames(beta_lasso_1se),
+  beta_lasso_1se = as.numeric(beta_lasso_1se),
+  beta_lasso_min = as.numeric(beta_lasso_min),
+  beta_ridge_1se = as.numeric(beta_ridge_1se),
+  beta_ridge_min = as.numeric(beta_ridge_min)
+)
+
+# Show only nonzero in either solution
+betas_lasso_nz <- betas |>
+  filter(beta_lasso_1se != 0 | beta_lasso_min != 0) |>
+  arrange(abs(beta_lasso_1se), abs(beta_lasso_min))
+
+nrow(betas_lasso_nz)
+
+betas <- betas |> 
+  left_join(betas_linear)
+```
+
+```{r}
+betas |> 
+  arrange(-beta_lasso_1se) |> 
+  head(20) |> 
+  ggplot(aes(x = beta_lasso_1se, 
+             y = fct_reorder(term, beta_lasso_1se))) +
+  geom_vline(xintercept = 0,
+             color = 'maroon') +
+  geom_pointrange(aes(xmin = 0, xmax = beta_lasso_1se)) +
+  labs(y = NULL,
+       title = "Lasso Linear Regression (lambda.1se)")
+```
+
+```{r}
+betas |> 
+  arrange(-beta_lasso_min) |> 
+  head(20) |> 
+  ggplot(aes(x = beta_lasso_min, 
+             y = fct_reorder(term, beta_lasso_min))) +
+  geom_vline(xintercept = 0,
+             color = 'maroon') +
+  geom_pointrange(aes(xmin = 0, xmax = beta_lasso_min)) +
+  labs(y = NULL,
+       title = "Lasso Linear Regression (lambda.min)")
+```
+
+
+```{r}
+#| fig-height: 9
+betas |> 
+  arrange(-beta_lasso_1se) |> 
+  head(20) |> 
+  pivot_longer(cols = beta_lasso_1se:beta,
+               names_to = "model",
+               values_to = "value") |> 
+  ggplot(aes(x = value, y = fct_reorder(term, value), color = model)) +
+  geom_vline(xintercept = 0,
+             color = 'maroon') +
+  geom_pointrange(aes(xmin = 0, 
+                      xmax = value),
+                  position = position_dodge(width = 0.6)) +
+  labs(y = NULL) +
+  theme(legend.position = "top")
+```
+
+
+### Coefficient plots with the bottom 20 websites.
+
+
+```{r}
+#| fig-height: 9
+betas |> 
+  filter(!str_detect(term, "(Intercept)")) |> 
+  arrange(beta_lasso_1se) |> 
+  head(20) |> 
+  pivot_longer(cols = beta_lasso_1se:beta,
+               names_to = "model",
+               values_to = "value") |> 
+  ggplot(aes(x = value, y = fct_reorder(term, value), color = model)) +
+  geom_vline(xintercept = 0,
+             color = 'maroon') +
+  geom_pointrange(aes(xmin = 0, 
+                      xmax = value),
+                  position = position_dodge(width = 0.6)) +
+  labs(y = NULL) +
+  theme(legend.position = "top")
+```
+
+
+### Residual plots
+
+```{r}
+
+# threshold <- mean(dtest$fail)
+# threshold <- 0.5
+
+dtest_pred <- dtest |>
+  mutate(
+    .fitted = predict(model, newdata = dtest),
+    .fitted_lasso_1se = predict(model_lasso, newx = X_test, 
+                                s = "lambda.1se"),
+    .fitted_lasso_min = predict(model_lasso, newx = X_test, 
+                                s = "lambda.min"),
+    .fitted_ridge_1se = predict(model_ridge, newx = X_test, 
+                                s = "lambda.1se"),
+    .fitted_ridge_min = predict(model_ridge, newx = X_test, 
+                                s = "lambda.min")
+  ) |> 
+  mutate(
+    resid = log(spend) - .fitted,
+    resid_lasso_1se = log(spend) - .fitted_lasso_1se,
+    resid_lasso_min = log(spend) - .fitted_lasso_min,
+    resid_ridge_1se = log(spend) - .fitted_ridge_1se,
+    resid_ridge_min = log(spend) - .fitted_ridge_min
+  ) |> 
+  select(starts_with(".fitted"), starts_with("resid"))
+
+
+```
+
+
+```{r}
+dtest_pred |> 
+  ggplot(aes(x = .fitted, y = resid)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Linear Regression"
+  )
+```
+
+```{r}
+dtest_pred |> 
+  ggplot(aes(x = .fitted_lasso_1se, y = resid_lasso_1se)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Lasso Linear Regression (lambda.1se)"
+  )
+```
+
+```{r}
+dtest_pred |> 
+  ggplot(aes(x = .fitted_lasso_min, y = resid_lasso_min)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Lasso Linear Regression (lambda.min)"
+  )
+```
+
+
+
+```{r}
+dtest_pred |> 
+  ggplot(aes(x = .fitted_ridge_1se, y = resid_ridge_1se)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Ridge Linear Regression (lambda.1se)"
+  )
+```
+
+
+
+
+```{r}
+dtest_pred |> 
+  ggplot(aes(x = .fitted_ridge_min, y = resid_ridge_min)) +
+  geom_point(alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Ridge Linear Regression (lambda.min)"
+  )
+```
+
+
+## Q4.
+
+```{r}
+top20_lasso_min <- betas |> 
+  arrange(-beta_lasso_min) |> 
+  head(20)
+
+top20_lasso_min |> 
+  paged_table()
+```
+
+
+## Q5
+
+
+```{r}
+
+RMSEs <- dtest_pred |> 
+  summarize(
+    RMSE = sqrt(mean(resid^2)),
+    RMSE_lasso_1se = sqrt(mean(resid_lasso_1se^2)),
+    RMSE_lasso_min = sqrt(mean(resid_lasso_min^2)),
+    RMSE_ridge_1se = sqrt(mean(resid_ridge_1se^2)),
+    RMSE_ridge_min = sqrt(mean(resid_ridge_min^2))
+  )
+
+RMSEs
+```
+
