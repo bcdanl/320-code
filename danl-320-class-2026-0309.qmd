@@ -1,0 +1,203 @@
+---
+title: Class Script
+subtitle: "Logistic Regression"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-03-04
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(skimr)
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(stargazer)
+library(broom)
+
+theme_set(theme_ipsum()+
+          theme(strip.background =element_rect(fill="lightgray"),
+                axis.title.x = 
+                  element_text(angle = 0,
+                               size = rel(1.33),
+                               margin = margin(10,0,0,0)),
+                axis.title.y = 
+                  element_text(angle = 90,
+                               size = rel(1.33),
+                               margin = margin(0,10,0,0))
+                )
+          )
+```
+
+
+# Classwork 7
+
+```{r}
+library(tidyverse)
+library(broom)
+library(stargazer)
+
+library(glmnet) 
+library(gamlr)   # a companion package for glmnet
+library(Matrix)  # to create a sparse matrix
+
+library(DT)
+library(rmarkdown)
+library(hrbrthemes)
+library(ggthemes)
+
+theme_set(
+  theme_ipsum()
+)
+
+scale_colour_discrete <- function(...) scale_color_colorblind(...)
+scale_fill_discrete <- function(...) scale_fill_colorblind(...)
+```
+
+
+
+```{r}
+url <- "https://bcdanl.github.io/data/hockey.RDS"
+dest <- file.path(tempdir(), "hockey.RDS")
+
+download.file(url, destfile = dest, mode = "wb")
+hockey <- readRDS(dest)
+
+config <- hockey$config
+goal   <- hockey$goal
+player <- hockey$player  # dgCMatrix: a sparse matrix
+team   <- hockey$team
+
+rm(dest, url, hockey)   # remove unnecessary objects
+```
+
+```{r}
+df_player <- player |> 
+  as.matrix() |> 
+  as_tibble(.name_repair = "unique")
+
+df_config <- config |> 
+  as.matrix() |> 
+  as_tibble(.name_repair = "unique")
+
+df_team <- team |> 
+  as.matrix() |> 
+  as_tibble(.name_repair = "unique")
+```
+
+
+```{r}
+# A vector for the outcome variable
+y <- goal$homegoal
+
+# Sparse matrices for explanatory variables
+x <- cbind(config, team, player) 
+# A vector of penalty indicators (one value per column in x)
+# - 1  => penalize this coefficient (default behavior)
+# - 0  => do NOT penalize this coefficient (it will be kept "unshrunk")
+p.fac <- rep(1, ncol(config) + ncol(team) + ncol(player))
+
+# Set penalty.factor = 0 for config + team:
+# config + team columns will be unpenalized (like "must-keep" controls),
+# while the player columns remain penalized (eligible for shrinkage/selection).
+p.fac[1:(ncol(config) + ncol(team))] <- 0
+
+# Fit cross-validated lasso/logit (alpha default is 1 unless you set it)
+
+# - penalty.factor applies column-by-column to x
+# - standardize=FALSE => do NOT standardize predictors internally
+# - standardize=TRUE => (default option) standardize predictors internally
+model_lasso <- cv.glmnet(
+  x, y,
+  penalty.factor = p.fac,
+  family = "binomial",
+  standardize = FALSE
+)
+```
+
+## Betas
+
+```{r}
+# Lasso
+beta_lasso_1se <- coef(model_lasso, 
+                       s = "lambda.1se")  # default
+beta_lasso_min <- coef(model_lasso, 
+                       s = "lambda.min")
+
+betas <- data.frame(
+  term = rownames(beta_lasso_1se),
+  beta_lasso_1se = as.numeric(beta_lasso_1se),
+  beta_lasso_min = as.numeric(beta_lasso_min)
+)
+
+# Show only nonzero in either solution
+betas_lasso_nz <- betas |>
+  filter(beta_lasso_1se != 0 | beta_lasso_min != 0) |>
+  arrange(abs(beta_lasso_1se), abs(beta_lasso_min))
+```
+
+## Home-team Effect
+
+```{r}
+# lambda.1se
+exp(0.080974836) - 1
+
+# lambda.min
+exp(0.078902281) - 1
+```
+
+
+```{r}
+betas_player <- betas |> 
+  filter(term %in% colnames(player))
+```
+
+
+```{r}
+# Peter Forsberg
+# lambda 1se
+
+exp(0.6951128) - 1
+
+# SIDNEY_CROSBY
+exp(0.3633188) - 1
+
+# Worst Player?
+# TIM_TAYLOR
+
+exp(-0.73661649) - 1
+
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
