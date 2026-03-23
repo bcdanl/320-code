@@ -1,0 +1,130 @@
+---
+title: Class Script
+subtitle: "Decision Trees"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-03-23
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+# Setup
+
+```{r setup}
+#| include: false
+
+library(tidyverse)
+library(janitor)
+library(ggthemes)
+library(rmarkdown)
+
+library(rpart)
+library(rpart.plot)
+library(vip)
+library(pdp)
+
+theme_set(
+  theme_bw() +
+    theme(
+      legend.position = "bottom",
+      strip.background = element_rect(fill = "lightgray"),
+      axis.title.x = element_text(size = rel(1.1)),
+      axis.title.y = element_text(size = rel(1.1))
+    )
+)
+
+```
+
+
+# Data
+
+
+```{r}
+nbc <- read_csv("https://bcdanl.github.io/data/nbc_show.csv") |> 
+  janitor::clean_names()  # column names are with all lowercase; 
+                          # spaces in column names are replaced by _
+
+paged_table(nbc)
+```
+
+
+```{r}
+nbc_demog <- read_csv("https://bcdanl.github.io/data/nbc_demog.csv") |> 
+  janitor::clean_names()
+
+paged_table(nbc_demog)
+```
+
+
+# Viz
+
+```{r}
+nbc |>
+  ggplot(aes(x = grp, y = pe, color = genre)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "GRP and Projected Engagement by Genre",
+    x = "Gross Ratings Points (GRP)",
+    y = "Projected Engagement (PE)",
+    color = "Genre"
+  )
+```
+
+```{r}
+init_nbc_tree <- rpart(
+  pe ~ grp + genre,
+  data = nbc,
+  method = "anova" # regression tree
+)
+```
+
+
+
+
+```{r}
+init_nbc_tree
+```
+
+```{r}
+full_nbc_tree <- rpart(
+  pe ~ grp + genre,
+  data = nbc,
+  method = "anova",
+  control = rpart.control(cp = 0, xval = 10, minsplit = 2)
+)
+```
+
+
+```{r}
+full_nbc_tree
+```
+
+
+```{r}
+rpart.plot(full_nbc_tree)
+```
+
+```{r}
+plotcp(full_nbc_tree)
+
+```
+
+
