@@ -1,0 +1,289 @@
+---
+title: Class Script
+subtitle: "RF and GBT"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-04-01
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+# Setup
+
+```{r setup}
+#| include: false
+
+library(tidyverse)
+library(janitor)
+library(ggthemes)
+library(rmarkdown)
+
+library(rpart)
+library(rpart.plot)
+library(ranger)
+library(vip)
+library(pdp)
+
+theme_set(
+  theme_bw() +
+    theme(
+      legend.position = "bottom",
+      strip.background = element_rect(fill = "lightgray"),
+      axis.title.x = element_text(size = rel(1.1)),
+      axis.title.y = element_text(size = rel(1.1))
+    )
+)
+
+```
+
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(ggthemes)
+library(rmarkdown)
+
+library(rpart)
+library(rpart.plot)
+library(ranger)
+library(vip)
+library(pdp)
+# library(xgboost) # load this right before we use xgboost()
+```
+
+
+
+```{r}
+boston <- read_csv("https://bcdanl.github.io/data/boston.csv") |>
+  janitor::clean_names()
+
+paged_table(boston)
+```
+
+
+# Train-Test Split
+```{r}
+set.seed(42120532)
+boston <- boston |> 
+  mutate(rnd = runif(n()))
+
+dtrain <- boston |> 
+  filter(rnd > .2) |> 
+  select(-rnd)
+
+dtest <- boston |> 
+  filter(rnd <= .2) |> 
+  select(-rnd)
+
+x_train <- dtrain |> select(-medv)
+y_train <- dtrain$medv
+x_test  <- dtest |> select(-medv)
+y_test  <- dtest$medv
+```
+
+
+```{r}
+set.seed(1917)
+
+init_boston_rf <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  importance = "permutation"
+)
+
+init_boston_rf
+```
+
+
+
+
+
+
+```{r}
+rf_2 <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  mtry = 2,
+  importance = "permutation"
+)
+
+rf_4 <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  mtry = 4,
+  importance = "permutation"
+)
+
+rf_6 <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  mtry = 6,
+  importance = "permutation"
+)
+
+rf_8 <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  mtry = 8,
+  importance = "permutation"
+)
+
+rf_10 <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  mtry = 10,
+  importance = "permutation"
+)
+
+rf_12 <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 300,
+  mtry = 12,
+  importance = "permutation"
+)
+
+rf_results <- tibble(
+  mtry = c(2, 4, 6, 8, 10, 12),
+  oob_error = c(
+    rf_2$prediction.error,
+    rf_4$prediction.error,
+    rf_6$prediction.error,
+    rf_8$prediction.error,
+    rf_10$prediction.error,
+    rf_12$prediction.error
+  )
+)
+
+rf_results |>
+  arrange(oob_error) |> 
+  paged_table()
+```
+
+
+### with for loop
+
+```{r}
+p <- ncol(x_train)
+rf_grid <- tibble(mtry = seq(2, p, by = 2))
+
+rf_results <- tibble(
+  mtry = numeric(),
+  oob_error = numeric()
+)
+
+for (m in rf_grid$mtry) {
+  fit <- ranger(
+    medv ~ .,
+    data = dtrain,
+    num.trees = 300,
+    mtry = m,
+    importance = "permutation"
+  )
+
+  rf_results <- bind_rows(
+    rf_results,
+    
+    tibble(
+      mtry = m,
+      oob_error = fit$prediction.error
+    )
+  )
+}
+
+rf_results |> 
+  arrange(oob_error) |> 
+  paged_table()
+```
+
+```{r}
+rf_results |>
+  ggplot(aes(x = mtry, y = oob_error)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Random Forest Tuning Results",
+    x = "mtry",
+    y = "Out-of-bag prediction error"
+  )
+```
+
+
+```{r}
+best_mtry <- rf_results |>
+  slice_min(oob_error, n = 1) |>
+  pull(mtry)
+
+final_boston_rf <- ranger(
+  medv ~ .,
+  data = dtrain,
+  num.trees = 500,
+  mtry = best_mtry,
+  importance = "permutation"
+)
+
+best_mtry
+
+final_boston_rf
+```
+
+
+```{r}
+rf_test_pred <- predict(final_boston_rf, data = dtest)$predictions
+
+sqrt(mean((y_test - rf_test_pred)^2))
+```
+
+
+```{r}
+vip(final_boston_rf)
+```
+
+
+```{r}
+partial(final_boston_rf, pred.var = "lstat", train = x_train) |>
+  autoplot() +
+  labs(title = "Partial Dependence of MEDV on LSTAT")
+```
+
+
+```{r}
+partial(final_boston_rf, pred.var = "rm", train = x_train) |>
+  autoplot() +
+  labs(title = "Partial Dependence of MEDV on Room Numbers")
+```
+```{r}
+partial(final_boston_rf, pred.var = "dis", train = x_train) |>
+  autoplot() +
+  labs(title = "Partial Dependence of MEDV on Distance to Business District")
+```
+
+
+
+
+
+
+
