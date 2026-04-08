@@ -1,0 +1,336 @@
+---
+title: Class Script
+subtitle: "RF and GBT"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-04-01
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+# Setup
+
+```{r}
+#| include: false
+
+library(tidyverse)
+library(DT)
+library(rmarkdown)
+library(hrbrthemes)
+library(ggthemes)
+
+
+library(janitor)
+library(rpart)
+library(rpart.plot)
+library(ranger)
+# library(xgboost)
+library(vip)
+library(pdp)
+
+
+theme_set(
+  theme_bw() +
+    theme(
+      legend.position = "bottom",
+      strip.background = element_rect(fill = "lightgray"),
+      axis.title.x = element_text(size = rel(1.1)),
+      axis.title.y = element_text(size = rel(1.1))
+    )
+)
+
+scale_colour_discrete <- function(...) scale_color_colorblind(...)
+scale_fill_discrete <- function(...) scale_fill_colorblind(...)
+```
+
+
+# Classwork 9 - Tree-based Models
+
+## Packages
+
+```{r}
+library(tidyverse)
+
+library(janitor)
+library(rpart)
+library(rpart.plot)
+library(ranger)
+# library(xgboost)
+library(vip)
+library(pdp)
+
+library(ggthemes)
+library(rmarkdown)
+```
+
+
+
+<p align="center">
+  <img src="https://bcdanl.github.io/lec_figs/mlb_shohei_ohtani_dodgers.jpg" width="600px">
+</p>
+
+I downloaded MLB 2024 batting statistics leaderboard from [Fangraphs](https://www.fangraphs.com/leaders.aspx?pos=all&stats=bat&lg=all&qual=y&type=8&season=2024&month=0&season1=2022&ind=0), and created the following `mlb_battings_2024` data.frame:
+
+```{r}
+mlb_battings_2024 <- read_csv("https://bcdanl.github.io/data/mlb_battings_2024.csv")
+```
+
+```{r}
+#| echo: false
+#| eval: true
+
+DT::datatable(readr::read_csv('https://bcdanl.github.io/data/mlb_battings_2024.csv'))
+```
+
+## Variable Description
+
+
+| Variable    | Description                                                                                   |
+|-------------|-----------------------------------------------------------------------------------------------|
+| `g`           | **Games Played:** The number of games in which the player appeared.                           |
+| `pa`          | **Plate Appearances:** Total number of times the player appeared at the plate.                |
+| `hr`          | **Home Runs:** Total number of home runs hit by the player.                                   |
+| `r`           | **Runs:** Total number of runs scored by the player.                                          |
+| `rbi`         | **Runs Batted In (RBI):** Number of runs the player batted in.                                  |
+| `sb`          | **Stolen Bases:** Total number of bases stolen by the player.                                 |
+| `bb_percent`  | **Walk Percentage:** The percentage of plate appearances that result in a base on balls.        |
+| `k_percent`   | **Strikeout Percentage:** The percentage of plate appearances that end in a strikeout.         |
+| `iso`         | **Isolated Power (ISO):** A measure of a player's raw power, calculated as (SLG - AVG).          |
+| `babip`       | **Batting Average on Balls In Play (BABIP):** The average when excluding home runs and strikeouts. |
+| `avg`         | **Batting Average (AVG):** The ratio of hits to official at-bats.                             |
+| `obp`         | **On-Base Percentage (OBP):** The frequency a player reaches base per plate appearance.         |
+| `slg`         | **Slugging Percentage (SLG):** A weighted measure of total bases per at-bat.                    |
+| `w_oba`       | **Weighted On-Base Average (wOBA):** An advanced metric that measures a player’s overall offensive value. |
+| `xw_oba`      | **Expected wOBA (xwOBA):** A metric estimating wOBA based on the quality of contact.            |
+| `w_rc`        | **Weighted Runs Created (wRC):** An advanced statistic that estimates the number of runs a player creates. |
+| `bs_r`        | **Base Running Runs (BsR):** A metric quantifying the value of a player's base running.           |
+| `off`         | **Offensive Value:** A composite metric or rating summarizing the player's offensive contributions. |
+| `def`         | **Defensive Value:** A composite metric or rating summarizing the player's defensive contributions. |
+| `war`         | **Wins Above Replacement (WAR):** An overall measure of a player's total contributions to their team. |
+
+
+<br>
+
+- Consider the tree-based models---(1) decision trees, (2) random forest, and (3) gradient-boosted trees:
+  - **Outcome Variable:** `war`
+  - **Predictors:** All remaining variables
+
+<br>
+
+## Question 1
+-  Fit a regression tree model with a maximum depth of 3 (`max_depth=3`).
+  -  Provide an interpretation of the leaf nodes.
+
+
+```{r}
+mlb_battings_2024 <- mlb_battings_2024 |> 
+  mutate(rnd = runif(n()))
+
+dtrain <- mlb_battings_2024 |> 
+  filter(rnd >= .2) |> 
+  select(-rnd)
+
+dtest <- mlb_battings_2024 |> 
+  filter(rnd < .2) |> 
+  select(-rnd)
+```
+
+
+
+```{r}
+mlb_tree_1 <- rpart(
+  war ~ .,
+  data = dtrain,
+  method = "anova",
+  control = rpart.control(cp = 0, xval = 10, maxdepth = 3)
+)
+
+mlb_tree_1
+```
+
+```{r}
+rpart.plot(mlb_tree_1)
+```
+
+<br>
+
+## Question 2
+-  Fit a regression tree model without imposing a maximum depth constraint.
+
+```{r}
+mlb_tree_full <- rpart(
+  war ~ .,
+  data = dtrain,
+  method = "anova",
+  control = rpart.control(cp = 0, xval = 10)
+)
+
+mlb_tree_full
+```
+
+```{r}
+rpart.plot(mlb_tree_full)
+```
+
+<br>
+
+## Question 3
+-  Prune regression trees using cross-validation (CV).
+  - Plot the CV error versus the number of leaves.
+  - Plot the pruned tree with the lowest mean CV MSE.
+  - Compare the pruned tree with the tree from Question 1.
+
+
+```{r}
+
+reg_tuning_grid <- tribble(
+  ~minsplit, ~maxdepth,
+  20,        4,
+  20,        6,
+  30,        4,
+  30,        6,
+  40,        4,
+  40,        6
+)
+
+reg_tuning_results <- reg_tuning_grid
+
+fit_list <- vector("list", nrow(reg_tuning_results))
+cp_table_list <- vector("list", nrow(reg_tuning_results))
+min_xerror_vec <- numeric(nrow(reg_tuning_results))
+best_cp_vec <- numeric(nrow(reg_tuning_results))
+nsplit_at_best_cp_vec <- numeric(nrow(reg_tuning_results))
+
+for (i in seq_len(nrow(reg_tuning_results))) {
+  
+  fit_list[[i]] <- rpart(
+    war ~ .,
+    data = dtrain,
+    method = "anova",
+    control = rpart.control(
+      cp = 0,
+      xval = 10,
+      minsplit = reg_tuning_results$minsplit[i],
+      maxdepth = reg_tuning_results$maxdepth[i]
+    )
+  )
+  
+  cp_table_list[[i]] <- as_tibble(fit_list[[i]]$cptable)
+  
+  min_xerror_vec[i] <- min(cp_table_list[[i]]$xerror)
+  
+  best_cp_vec[i] <- cp_table_list[[i]] |>
+    slice_min(xerror, n = 1) |>
+    pull(CP)
+  
+  nsplit_at_best_cp_vec[i] <- cp_table_list[[i]] |>
+    filter(CP == best_cp_vec[i]) |>
+    slice(1) |>
+    pull(nsplit)
+}
+
+reg_tuning_results <- reg_tuning_results |>
+  mutate(
+    fit = fit_list,
+    cp_table = cp_table_list,
+    min_xerror = min_xerror_vec,
+    best_cp = best_cp_vec,
+    nsplit_at_best_cp = nsplit_at_best_cp_vec
+  ) |>
+  select(minsplit, maxdepth, min_xerror, best_cp, nsplit_at_best_cp)
+
+reg_tuning_results |> 
+  paged_table()
+
+```
+
+```{r}
+
+best_tree <- reg_tuning_results |> 
+  arrange(min_xerror) |> 
+  head(1)
+
+best_tree
+```
+
+```{r}
+mlb_tree_tuned <- rpart(
+    war ~ .,
+  data = dtrain,
+  method = "anova",
+  control = rpart.control(cp = 0, xval = 10, 
+                          minsplit = best_tree$minsplit, 
+                          maxdepth = best_tree$maxdepth)
+)
+
+plotcp(mlb_tree_tuned)
+```
+
+```{r}
+rpart.plot(mlb_tree_tuned)
+```
+
+
+<br>
+
+## Question 4
+-  Fit and tune the random forest model with the following `mtry` values.
+
+```{r}
+#| echo: true
+#| eval: false
+
+p <- ncol(x_train)
+rf_grid <- tibble(mtry = seq(2, p, by = 2))
+```
+
+  - Plot the variable importance measures.
+
+<br>
+
+
+## Question 5
+-  Fit and tune the XGBoost model using the following hyperparameter grid:
+
+```{r}
+#| echo: true
+
+xgb_grid <- tidyr::crossing(
+  nrounds = seq(20, 200, by = 20),
+  eta = c(0.025, 0.05, 0.1, 0.3),
+  max_depth = c(1, 2, 3, 4),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+xgb_grid |> 
+  paged_table()
+```
+
+  - Plot the variable importance measures.
+
+<br>
+
+## Question 6
+-  Compare the Mean Squared Errors (MSEs) on the test data across the different tree-based models.
+  - Analyze and discuss the differences in predictive performance among these models.
+
