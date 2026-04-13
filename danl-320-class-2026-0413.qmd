@@ -4,7 +4,7 @@ subtitle: "RF and GBT"
 author:
   - name: Byeong-Hak Choe
     
-date: 2026-04-08
+date: 2026-04-13
 
 execute: 
   echo: true
@@ -297,11 +297,101 @@ rpart.plot(mlb_tree_tuned)
 #| echo: true
 #| eval: false
 
-p <- ncol(x_train)
+p <- ncol(dtrain) - 1
 rf_grid <- tibble(mtry = seq(2, p, by = 2))
 ```
 
+
+```{r}
+set.seed(1917)
+
+init_mlb_rf <- ranger(
+  war ~ .,
+  data = dtrain,
+  num.trees = 300,
+  importance = "permutation"
+)
+
+init_mlb_rf
+```
+
+```{r}
+# p = the total number of predictor variables in the training data
+p <- ncol(dtrain) - 1
+
+# Create a tuning grid for mtry:
+# mtry is the number of predictors randomly considered at each split
+# Here, we try even-numbered values from 2 up to p
+rf_grid <- tibble(mtry = seq(2, p, by = 2))
+
+# Create an empty tibble to store the tuning results
+# We will save each mtry value and its corresponding OOB error
+rf_results <- tibble(
+  mtry = numeric(),
+  oob_error = numeric()
+)
+
+# Loop over each candidate mtry value
+for (m in rf_grid$mtry) {
+  
+  # Fit a random forest model with the current mtry value
+  fit <- ranger(
+    war ~ .,                 
+    data = dtrain,            
+    num.trees = 300,          # grow 300 trees in the forest
+    mtry = m,                 # current candidate value of mtry
+    importance = "permutation" # compute permutation-based variable importance
+  )
+
+  # Store the current mtry value and its OOB prediction error
+  rf_results <- bind_rows(
+    rf_results,
+    tibble(
+      mtry = m,
+      oob_error = fit$prediction.error
+    )
+  )
+}
+
+
+rf_results |> 
+  paged_table()
+```
+
+```{r}
+rf_results |>
+  ggplot(aes(x = mtry, y = oob_error)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Random Forest Tuning Results",
+    x = "mtry",
+    y = "Out-of-bag prediction error"
+  )
+```
+
+```{r}
+best_mtry <- rf_results |>
+  slice_min(oob_error, n = 1) |>
+  pull(mtry)
+
+final_mlb_rf <- ranger(
+  war ~ .,
+  data = dtrain,
+  num.trees = 500,
+  mtry = best_mtry,
+  importance = "permutation"
+)
+
+best_mtry
+```
+
+
   - Plot the variable importance measures.
+
+```{r}
+vip(final_mlb_rf)
+```
 
 <br>
 
@@ -326,11 +416,193 @@ xgb_grid |>
   paged_table()
 ```
 
+
+```{r}
+
+x_train <- dtrain |> select(-war)
+y_train <- dtrain$war
+x_test  <- dtest |> select(-war)
+y_test  <- dtest$war
+
+x_train_mat <- as.matrix(x_train)
+x_test_mat  <- as.matrix(x_test)
+```
+
+
+```{r}
+library(xgboost)
+
+set.seed(1937)
+
+xgb_fit_initial <- xgboost(
+  data = x_train_mat,
+  label = y_train,
+  objective = "reg:squarederror",
+  nrounds = 100,
+  eta = 0.1,
+  max_depth = 3,
+  verbose = 0
+)
+
+xgb_fit_initial
+```
+
+```{r}
+xgb_results_lst <- vector("list", nrow(xgb_grid))
+
+dMat_train <- xgb.DMatrix(data = x_train_mat, label = y_train)
+
+for (i in seq_len(nrow(xgb_grid))) {
+  nrounds <- xgb_grid$nrounds[i]
+  eta <- xgb_grid$eta[i]
+  max_depth <- xgb_grid$max_depth[i]
+  gamma <- xgb_grid$gamma[i]
+  colsample_bytree <- xgb_grid$colsample_bytree[i]
+  min_child_weight <- xgb_grid$min_child_weight[i]
+  subsample <- xgb_grid$subsample[i]
+
+  cv_fit <- xgb.cv(
+    # data = x_train_mat,
+    # label = y_train,
+    
+    # If an error occurs with the message including DMatrix, try:
+    data = dMat_train,
+  
+    nrounds = nrounds,
+    nfold = 5,
+    objective = "reg:squarederror",
+    eta = eta,
+    max_depth = max_depth,
+    gamma = gamma,
+    colsample_bytree = colsample_bytree,
+    min_child_weight = min_child_weight,
+    subsample = subsample,
+    verbose = 0
+  )
+
+  xgb_results_lst[[i]] <- tibble(
+    nrounds = nrounds,
+    eta = eta,
+    max_depth = max_depth,
+    gamma = gamma,
+    colsample_bytree = colsample_bytree,
+    min_child_weight = min_child_weight,
+    subsample = subsample,
+    cv_rmse = min(cv_fit$evaluation_log$test_rmse_mean)
+  )
+}
+
+xgb_results <- 
+  bind_rows(xgb_results_lst) |> 
+  arrange(cv_rmse)
+
+xgb_results |> 
+  paged_table()
+```
+
+
+
+```{r}
+# best_xgb <- xgb_results[order(xgb_results$cv_rmse), ][1, ]
+
+best_xgb <- xgb_results |>
+  slice_min(cv_rmse, n = 1)
+
+best_xgb |> 
+  paged_table()
+```
+
+```{r}
+xgb_fit_final <- xgboost(
+  data = x_train_mat,
+  label = y_train,
+  objective = "reg:squarederror",
+  nrounds = best_xgb$nrounds,
+  eta = best_xgb$eta,
+  max_depth = best_xgb$max_depth,
+  gamma = best_xgb$gamma,
+  colsample_bytree = best_xgb$colsample_bytree,
+  min_child_weight = best_xgb$min_child_weight,
+  subsample = best_xgb$subsample,
+  verbose = 0
+)
+
+xgb_fit_final
+```
   - Plot the variable importance measures.
+  
+```{r}
+vip(xgb_fit_final) +
+  labs(title = "XGBoost Variable Importance")
+```
+
+
+```{r}
+vip(xgb_fit_initial) +
+  labs(title = "XGBoost Variable Importance - Initial GB")
+```
 
 <br>
 
 ## Question 6
 -  Compare the Mean Squared Errors (MSEs) on the test data across the different tree-based models.
   - Analyze and discuss the differences in predictive performance among these models.
+
+
+```{r}
+
+# test
+pred_test_reg_tree <- predict(mlb_tree_tuned, newdata = dtest)
+pred_test_rf <- predict(final_boston_rf, data = dtest)$predictions
+xgb_test_pred <- predict(xgb_fit_final, newdata = x_test_mat)
+
+mse_test_reg_tree <- mean( (y_test - pred_test_reg_tree)^2 )
+mse_test_rf <- mean( (y_test - pred_test_rf)^2 )
+mse_test_gb <- mean( (y_test - xgb_test_pred)^2 )
+
+# train
+pred_train_reg_tree <- predict(mlb_tree_tuned, newdata = dtrain)
+pred_train_rf <- predict(final_boston_rf, data = dtrain)$predictions
+xgb_train_pred <- predict(xgb_fit_final, newdata = x_train_mat)
+
+mse_train_reg_tree <- mean( (y_train - pred_train_reg_tree)^2 )
+mse_train_rf <- mean( (y_train - pred_train_rf)^2 )
+mse_train_gb <- mean( (y_train - xgb_train_pred)^2 )
+
+
+mse_test_vec <- c(
+  "mse_test_reg_tree" = mse_test_reg_tree,
+  "mse_test_rf" = mse_test_rf,
+  "mse_test_gb" = mse_test_gb
+)
+
+
+mse_train_vec <- c(
+  "mse_train_reg_tree" = mse_train_reg_tree,
+  "mse_train_rf" = mse_train_rf,
+  "mse_train_gb" = mse_train_gb
+)
+
+mse_test_vec
+mse_train_vec
+
+```
+
+# Clustering
+
+```{r}
+library(tidyverse)
+# install.packages(
+#   c("factoextra", "cluster", "fpc")
+# )
+library(factoextra)
+library(cluster)
+library(fpc)
+
+protein <- read_csv("https://bcdanl.github.io/data/protein.csv")
+
+rowSums(protein |> select(-Country))
+
+```
+
 
