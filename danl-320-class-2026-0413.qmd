@@ -1,10 +1,10 @@
 ---
 title: Class Script
-subtitle: "RF and GBT"
+subtitle: "UL"
 author:
   - name: Byeong-Hak Choe
     
-date: 2026-04-13
+date: 2026-04-15
 
 execute: 
   echo: true
@@ -25,568 +25,7 @@ format:
     highlight-style: atom-one
 ---
 
-# Setup
 
-```{r}
-#| include: false
-
-library(tidyverse)
-library(DT)
-library(rmarkdown)
-library(hrbrthemes)
-library(ggthemes)
-
-
-library(janitor)
-library(rpart)
-library(rpart.plot)
-library(ranger)
-# library(xgboost)
-library(vip)
-library(pdp)
-
-
-theme_set(
-  theme_bw() +
-    theme(
-      legend.position = "bottom",
-      strip.background = element_rect(fill = "lightgray"),
-      axis.title.x = element_text(size = rel(1.1)),
-      axis.title.y = element_text(size = rel(1.1))
-    )
-)
-
-scale_colour_discrete <- function(...) scale_color_colorblind(...)
-scale_fill_discrete <- function(...) scale_fill_colorblind(...)
-```
-
-
-# Classwork 9 - Tree-based Models
-
-## Packages
-
-```{r}
-library(tidyverse)
-
-library(janitor)
-library(rpart)
-library(rpart.plot)
-library(ranger)
-# library(xgboost)
-library(vip)
-library(pdp)
-
-library(ggthemes)
-library(rmarkdown)
-```
-
-
-
-<p align="center">
-  <img src="https://bcdanl.github.io/lec_figs/mlb_shohei_ohtani_dodgers.jpg" width="600px">
-</p>
-
-I downloaded MLB 2024 batting statistics leaderboard from [Fangraphs](https://www.fangraphs.com/leaders.aspx?pos=all&stats=bat&lg=all&qual=y&type=8&season=2024&month=0&season1=2022&ind=0), and created the following `mlb_battings_2024` data.frame:
-
-```{r}
-mlb_battings_2024 <- read_csv("https://bcdanl.github.io/data/mlb_battings_2024.csv")
-```
-
-```{r}
-#| echo: false
-#| eval: true
-
-DT::datatable(readr::read_csv('https://bcdanl.github.io/data/mlb_battings_2024.csv'))
-```
-
-## Variable Description
-
-
-| Variable    | Description                                                                                   |
-|-------------|-----------------------------------------------------------------------------------------------|
-| `g`           | **Games Played:** The number of games in which the player appeared.                           |
-| `pa`          | **Plate Appearances:** Total number of times the player appeared at the plate.                |
-| `hr`          | **Home Runs:** Total number of home runs hit by the player.                                   |
-| `r`           | **Runs:** Total number of runs scored by the player.                                          |
-| `rbi`         | **Runs Batted In (RBI):** Number of runs the player batted in.                                  |
-| `sb`          | **Stolen Bases:** Total number of bases stolen by the player.                                 |
-| `bb_percent`  | **Walk Percentage:** The percentage of plate appearances that result in a base on balls.        |
-| `k_percent`   | **Strikeout Percentage:** The percentage of plate appearances that end in a strikeout.         |
-| `iso`         | **Isolated Power (ISO):** A measure of a player's raw power, calculated as (SLG - AVG).          |
-| `babip`       | **Batting Average on Balls In Play (BABIP):** The average when excluding home runs and strikeouts. |
-| `avg`         | **Batting Average (AVG):** The ratio of hits to official at-bats.                             |
-| `obp`         | **On-Base Percentage (OBP):** The frequency a player reaches base per plate appearance.         |
-| `slg`         | **Slugging Percentage (SLG):** A weighted measure of total bases per at-bat.                    |
-| `w_oba`       | **Weighted On-Base Average (wOBA):** An advanced metric that measures a player’s overall offensive value. |
-| `xw_oba`      | **Expected wOBA (xwOBA):** A metric estimating wOBA based on the quality of contact.            |
-| `w_rc`        | **Weighted Runs Created (wRC):** An advanced statistic that estimates the number of runs a player creates. |
-| `bs_r`        | **Base Running Runs (BsR):** A metric quantifying the value of a player's base running.           |
-| `off`         | **Offensive Value:** A composite metric or rating summarizing the player's offensive contributions. |
-| `def`         | **Defensive Value:** A composite metric or rating summarizing the player's defensive contributions. |
-| `war`         | **Wins Above Replacement (WAR):** An overall measure of a player's total contributions to their team. |
-
-
-<br>
-
-- Consider the tree-based models---(1) decision trees, (2) random forest, and (3) gradient-boosted trees:
-  - **Outcome Variable:** `war`
-  - **Predictors:** All remaining variables
-
-<br>
-
-## Question 1
--  Fit a regression tree model with a maximum depth of 3 (`max_depth=3`).
-  -  Provide an interpretation of the leaf nodes.
-
-
-```{r}
-mlb_battings_2024 <- mlb_battings_2024 |> 
-  mutate(rnd = runif(n()))
-
-dtrain <- mlb_battings_2024 |> 
-  filter(rnd >= .2) |> 
-  select(-rnd)
-
-dtest <- mlb_battings_2024 |> 
-  filter(rnd < .2) |> 
-  select(-rnd)
-```
-
-
-
-```{r}
-mlb_tree_1 <- rpart(
-  war ~ .,
-  data = dtrain,
-  method = "anova",
-  control = rpart.control(cp = 0, xval = 10, maxdepth = 3)
-)
-
-mlb_tree_1
-```
-
-```{r}
-rpart.plot(mlb_tree_1)
-```
-
-<br>
-
-## Question 2
--  Fit a regression tree model without imposing a maximum depth constraint.
-
-```{r}
-mlb_tree_full <- rpart(
-  war ~ .,
-  data = dtrain,
-  method = "anova",
-  control = rpart.control(cp = 0, xval = 10)
-)
-
-mlb_tree_full
-```
-
-```{r}
-rpart.plot(mlb_tree_full)
-```
-
-<br>
-
-## Question 3
--  Prune regression trees using cross-validation (CV).
-  - Plot the CV error versus the number of leaves.
-  - Plot the pruned tree with the lowest mean CV MSE.
-  - Compare the pruned tree with the tree from Question 1.
-
-
-```{r}
-
-reg_tuning_grid <- tribble(
-  ~minsplit, ~maxdepth,
-  20,        4,
-  20,        6,
-  30,        4,
-  30,        6,
-  40,        4,
-  40,        6
-)
-
-reg_tuning_results <- reg_tuning_grid
-
-fit_list <- vector("list", nrow(reg_tuning_results))
-cp_table_list <- vector("list", nrow(reg_tuning_results))
-min_xerror_vec <- numeric(nrow(reg_tuning_results))
-best_cp_vec <- numeric(nrow(reg_tuning_results))
-nsplit_at_best_cp_vec <- numeric(nrow(reg_tuning_results))
-
-for (i in seq_len(nrow(reg_tuning_results))) {
-  
-  fit_list[[i]] <- rpart(
-    war ~ .,
-    data = dtrain,
-    method = "anova",
-    control = rpart.control(
-      cp = 0,
-      xval = 10,
-      minsplit = reg_tuning_results$minsplit[i],
-      maxdepth = reg_tuning_results$maxdepth[i]
-    )
-  )
-  
-  cp_table_list[[i]] <- as_tibble(fit_list[[i]]$cptable)
-  
-  min_xerror_vec[i] <- min(cp_table_list[[i]]$xerror)
-  
-  best_cp_vec[i] <- cp_table_list[[i]] |>
-    slice_min(xerror, n = 1) |>
-    pull(CP)
-  
-  nsplit_at_best_cp_vec[i] <- cp_table_list[[i]] |>
-    filter(CP == best_cp_vec[i]) |>
-    slice(1) |>
-    pull(nsplit)
-}
-
-reg_tuning_results <- reg_tuning_results |>
-  mutate(
-    fit = fit_list,
-    cp_table = cp_table_list,
-    min_xerror = min_xerror_vec,
-    best_cp = best_cp_vec,
-    nsplit_at_best_cp = nsplit_at_best_cp_vec
-  ) |>
-  select(minsplit, maxdepth, min_xerror, best_cp, nsplit_at_best_cp)
-
-reg_tuning_results |> 
-  paged_table()
-
-```
-
-```{r}
-
-best_tree <- reg_tuning_results |> 
-  arrange(min_xerror) |> 
-  head(1)
-
-best_tree
-```
-
-```{r}
-mlb_tree_tuned <- rpart(
-    war ~ .,
-  data = dtrain,
-  method = "anova",
-  control = rpart.control(cp = 0, xval = 10, 
-                          minsplit = best_tree$minsplit, 
-                          maxdepth = best_tree$maxdepth)
-)
-
-plotcp(mlb_tree_tuned)
-```
-
-```{r}
-rpart.plot(mlb_tree_tuned)
-```
-
-
-<br>
-
-## Question 4
--  Fit and tune the random forest model with the following `mtry` values.
-
-```{r}
-#| echo: true
-#| eval: false
-
-p <- ncol(dtrain) - 1
-rf_grid <- tibble(mtry = seq(2, p, by = 2))
-```
-
-
-```{r}
-set.seed(1917)
-
-init_mlb_rf <- ranger(
-  war ~ .,
-  data = dtrain,
-  num.trees = 300,
-  importance = "permutation"
-)
-
-init_mlb_rf
-```
-
-```{r}
-# p = the total number of predictor variables in the training data
-p <- ncol(dtrain) - 1
-
-# Create a tuning grid for mtry:
-# mtry is the number of predictors randomly considered at each split
-# Here, we try even-numbered values from 2 up to p
-rf_grid <- tibble(mtry = seq(2, p, by = 2))
-
-# Create an empty tibble to store the tuning results
-# We will save each mtry value and its corresponding OOB error
-rf_results <- tibble(
-  mtry = numeric(),
-  oob_error = numeric()
-)
-
-# Loop over each candidate mtry value
-for (m in rf_grid$mtry) {
-  
-  # Fit a random forest model with the current mtry value
-  fit <- ranger(
-    war ~ .,                 
-    data = dtrain,            
-    num.trees = 300,          # grow 300 trees in the forest
-    mtry = m,                 # current candidate value of mtry
-    importance = "permutation" # compute permutation-based variable importance
-  )
-
-  # Store the current mtry value and its OOB prediction error
-  rf_results <- bind_rows(
-    rf_results,
-    tibble(
-      mtry = m,
-      oob_error = fit$prediction.error
-    )
-  )
-}
-
-
-rf_results |> 
-  paged_table()
-```
-
-```{r}
-rf_results |>
-  ggplot(aes(x = mtry, y = oob_error)) +
-  geom_line() +
-  geom_point() +
-  labs(
-    title = "Random Forest Tuning Results",
-    x = "mtry",
-    y = "Out-of-bag prediction error"
-  )
-```
-
-```{r}
-best_mtry <- rf_results |>
-  slice_min(oob_error, n = 1) |>
-  pull(mtry)
-
-final_mlb_rf <- ranger(
-  war ~ .,
-  data = dtrain,
-  num.trees = 500,
-  mtry = best_mtry,
-  importance = "permutation"
-)
-
-best_mtry
-```
-
-
-  - Plot the variable importance measures.
-
-```{r}
-vip(final_mlb_rf)
-```
-
-<br>
-
-
-## Question 5
--  Fit and tune the XGBoost model using the following hyperparameter grid:
-
-```{r}
-#| echo: true
-
-xgb_grid <- tidyr::crossing(
-  nrounds = seq(20, 200, by = 20),
-  eta = c(0.025, 0.05, 0.1, 0.3),
-  max_depth = c(1, 2, 3, 4),
-  gamma = 0,
-  colsample_bytree = 1,
-  min_child_weight = 1,
-  subsample = 1
-)
-
-xgb_grid |> 
-  paged_table()
-```
-
-
-```{r}
-
-x_train <- dtrain |> select(-war)
-y_train <- dtrain$war
-x_test  <- dtest |> select(-war)
-y_test  <- dtest$war
-
-x_train_mat <- as.matrix(x_train)
-x_test_mat  <- as.matrix(x_test)
-```
-
-
-```{r}
-library(xgboost)
-
-set.seed(1937)
-
-xgb_fit_initial <- xgboost(
-  data = x_train_mat,
-  label = y_train,
-  objective = "reg:squarederror",
-  nrounds = 100,
-  eta = 0.1,
-  max_depth = 3,
-  verbose = 0
-)
-
-xgb_fit_initial
-```
-
-```{r}
-xgb_results_lst <- vector("list", nrow(xgb_grid))
-
-dMat_train <- xgb.DMatrix(data = x_train_mat, label = y_train)
-
-for (i in seq_len(nrow(xgb_grid))) {
-  nrounds <- xgb_grid$nrounds[i]
-  eta <- xgb_grid$eta[i]
-  max_depth <- xgb_grid$max_depth[i]
-  gamma <- xgb_grid$gamma[i]
-  colsample_bytree <- xgb_grid$colsample_bytree[i]
-  min_child_weight <- xgb_grid$min_child_weight[i]
-  subsample <- xgb_grid$subsample[i]
-
-  cv_fit <- xgb.cv(
-    # data = x_train_mat,
-    # label = y_train,
-    
-    # If an error occurs with the message including DMatrix, try:
-    data = dMat_train,
-  
-    nrounds = nrounds,
-    nfold = 5,
-    objective = "reg:squarederror",
-    eta = eta,
-    max_depth = max_depth,
-    gamma = gamma,
-    colsample_bytree = colsample_bytree,
-    min_child_weight = min_child_weight,
-    subsample = subsample,
-    verbose = 0
-  )
-
-  xgb_results_lst[[i]] <- tibble(
-    nrounds = nrounds,
-    eta = eta,
-    max_depth = max_depth,
-    gamma = gamma,
-    colsample_bytree = colsample_bytree,
-    min_child_weight = min_child_weight,
-    subsample = subsample,
-    cv_rmse = min(cv_fit$evaluation_log$test_rmse_mean)
-  )
-}
-
-xgb_results <- 
-  bind_rows(xgb_results_lst) |> 
-  arrange(cv_rmse)
-
-xgb_results |> 
-  paged_table()
-```
-
-
-
-```{r}
-# best_xgb <- xgb_results[order(xgb_results$cv_rmse), ][1, ]
-
-best_xgb <- xgb_results |>
-  slice_min(cv_rmse, n = 1)
-
-best_xgb |> 
-  paged_table()
-```
-
-```{r}
-xgb_fit_final <- xgboost(
-  data = x_train_mat,
-  label = y_train,
-  objective = "reg:squarederror",
-  nrounds = best_xgb$nrounds,
-  eta = best_xgb$eta,
-  max_depth = best_xgb$max_depth,
-  gamma = best_xgb$gamma,
-  colsample_bytree = best_xgb$colsample_bytree,
-  min_child_weight = best_xgb$min_child_weight,
-  subsample = best_xgb$subsample,
-  verbose = 0
-)
-
-xgb_fit_final
-```
-  - Plot the variable importance measures.
-  
-```{r}
-vip(xgb_fit_final) +
-  labs(title = "XGBoost Variable Importance")
-```
-
-
-```{r}
-vip(xgb_fit_initial) +
-  labs(title = "XGBoost Variable Importance - Initial GB")
-```
-
-<br>
-
-## Question 6
--  Compare the Mean Squared Errors (MSEs) on the test data across the different tree-based models.
-  - Analyze and discuss the differences in predictive performance among these models.
-
-
-```{r}
-
-# test
-pred_test_reg_tree <- predict(mlb_tree_tuned, newdata = dtest)
-pred_test_rf <- predict(final_boston_rf, data = dtest)$predictions
-xgb_test_pred <- predict(xgb_fit_final, newdata = x_test_mat)
-
-mse_test_reg_tree <- mean( (y_test - pred_test_reg_tree)^2 )
-mse_test_rf <- mean( (y_test - pred_test_rf)^2 )
-mse_test_gb <- mean( (y_test - xgb_test_pred)^2 )
-
-# train
-pred_train_reg_tree <- predict(mlb_tree_tuned, newdata = dtrain)
-pred_train_rf <- predict(final_boston_rf, data = dtrain)$predictions
-xgb_train_pred <- predict(xgb_fit_final, newdata = x_train_mat)
-
-mse_train_reg_tree <- mean( (y_train - pred_train_reg_tree)^2 )
-mse_train_rf <- mean( (y_train - pred_train_rf)^2 )
-mse_train_gb <- mean( (y_train - xgb_train_pred)^2 )
-
-
-mse_test_vec <- c(
-  "mse_test_reg_tree" = mse_test_reg_tree,
-  "mse_test_rf" = mse_test_rf,
-  "mse_test_gb" = mse_test_gb
-)
-
-
-mse_train_vec <- c(
-  "mse_train_reg_tree" = mse_train_reg_tree,
-  "mse_train_rf" = mse_train_rf,
-  "mse_train_gb" = mse_train_gb
-)
-
-mse_test_vec
-mse_train_vec
-
-```
 
 # Clustering
 
@@ -605,4 +44,195 @@ rowSums(protein |> select(-Country))
 
 ```
 
+```{r}
+# Uses all columns except the first (Country)
+vars_to_use <- colnames(protein)[-1]
+
+protein_num <- protein[, vars_to_use]
+
+# Scale to mean 0, sd 1; stores center and scale attributes
+pmatrix <- scale( protein[, vars_to_use] )
+pcenter <- attr(pmatrix, "scaled:center")
+pscale  <- attr(pmatrix, "scaled:scale")
+
+# Convenience function to strip scale attributes
+rm_scales <- function(scaled_matrix) {
+  attr(scaled_matrix, "scaled:center") <- NULL
+  attr(scaled_matrix, "scaled:scale")  <- NULL
+  scaled_matrix
+}
+
+pmatrix <- rm_scales(pmatrix)
+
+
+
+```
+
+
+
+
+```{r}
+df_raw    <- protein |> select(FrVeg, RedMeat) |> mutate(type = "Original")
+
+df_scaled <- as.data.frame(pmatrix) |>
+               select(FrVeg, RedMeat) |>
+               mutate(type = "Scaled")
+
+# df <- bind_rows(df_raw, df_scaled) |>
+#   pivot_longer(c(FrVeg, RedMeat), names_to = "variable", values_to = "value")
+
+bind_rows(df_raw, df_scaled) |>
+  pivot_longer(c(FrVeg, RedMeat), names_to = "variable", values_to = "value") |>
+  ggplot(aes(x = value, color = variable)) +
+  geom_density(linewidth = 1) +
+  facet_wrap(~type, scales = "free") +
+  labs(title = "Raw vs. Scaled Distributions", color = NULL)
+```
+
+
+```{r}
+rownames(pmatrix) <- protein$Country
+distmat <- dist(pmatrix, method = "euclidean")
+pfit    <- hclust(distmat, method = "ward.D")
+
+p <- fviz_dend(pfit, k = 5,
+               rect        = TRUE,
+               rect_fill   = TRUE,
+               rect_border = "gray40",
+               main        = "Ward Dendrogram — Protein Data",
+               xlab        = "", ylab = "Height",
+               cex         = 0.75) +
+  theme(legend.position = "none")
+
+# Thin the branch segments by overriding linewidth in every segment layer
+for (i in seq_along(p$layers)) {
+  if (inherits(p$layers[[i]]$geom, "GeomSegment")) {
+    p$layers[[i]]$aes_params$linewidth <- 0.5
+    p$layers[[i]]$aes_params$size      <- 0.5
+  }
+}
+p
+```
+
+
+
+
+```{r}
+groups_hc <- cutree(pfit, k = 5)
+
+# Convenience function: print selected columns by cluster
+print_clusters <- function(data, groups, columns) {
+  grouped <- split(data, groups)
+  lapply(grouped, function(df) df[, columns])
+}
+
+cols_to_print <- c("Country", "RedMeat", "Fish", "FrVeg")
+print_clusters(protein, groups_hc, cols_to_print)
+```
+
+```{r}
+princ   <- prcomp(pmatrix)
+nComp   <- 2
+project <- predict(princ, pmatrix)[, 1:nComp]
+
+project_plus <- cbind(
+  as.data.frame(project),
+  cluster = as.factor(groups_hc),
+  country = protein$Country
+)
+```
+
+
+```{r}
+project_plus
+```
+
+
+```{r}
+# First 2 loading vectors (transposed for readability)
+t( round(princ$rotation, 2) )[1:2, ]
+```
+
+
+
+
+```{r}
+# First 2 loading vectors (transposed for readability)
+t( round(princ$rotation, 2) )[1:3, ]
+```
+
+
+
+
+```{r}
+ggplot(project_plus, aes(x = PC1, y = PC2)) +
+  geom_point(data = as.data.frame(project),
+             color = "darkgrey", 
+             alpha = 0.4) +
+  geom_point(aes(color = cluster)) +
+  geom_text(aes(label = country), 
+            hjust = 0, vjust = 1, 
+            size = 3) +
+  facet_wrap(~ cluster, 
+             ncol = 3, labeller = label_both) +
+  labs(title = "PCA Projection by Ward Clusters") +
+  theme(legend.position = "none")
+```
+
+```{r}
+kbest_p  <- 5
+pclusters <- kmeans(pmatrix, kbest_p, nstart = 100, iter.max = 100)
+
+pclusters$centers  # cluster centroids (in scaled units)
+pclusters$size     # number of observations per cluster
+
+groups_km <- pclusters$cluster
+print_clusters(protein, groups_km, cols_to_print)
+```
+
+```{r}
+pclusters$centers
+```
+
+```{r}
+pclusters$size     # number of observations per cluster
+
+```
+
+```{r}
+groups_km
+```
+
+```{r}
+clustering_ch  <- kmeansruns(pmatrix, krange = 1:10, criterion = "ch")
+clustering_asw <- kmeansruns(pmatrix, krange = 1:10, criterion = "asw")
+
+clustering_ch$bestk   # best k by Calinski-Harabasz
+clustering_asw$bestk  # best k by Average Silhouette Width
+
+clustering_ch$crit    # criterion scores for each k (CH)
+clustering_asw$crit   # criterion scores for each k (ASW)
+```
+
+```{r}
+fviz_nbclust(pmatrix,
+             FUNcluster = kmeans,
+             method     = "wss",     # within-cluster sum of squares
+             k.max      = 10) +
+  labs(title = "Elbow Method — Optimal k",
+       x     = "Number of Clusters k",
+       y     = "Total Within-Cluster SS")
+```
+
+
+
+```{r}
+fviz_cluster(pclusters,          # kmeans result
+             data        = pmatrix,
+             geom        = c("point", "text"),
+             ellipse.type= "convex",
+             repel       = TRUE,  # avoids label overlap
+             ggtheme     = theme_minimal(),
+             main        = "K-means Clusters (k = 5) — Protein Data")
+```
 
