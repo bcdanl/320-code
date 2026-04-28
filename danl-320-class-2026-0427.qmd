@@ -1,0 +1,362 @@
+---
+title: Class Script
+subtitle: "UL"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-04-27
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+
+```{r}
+library(arules)
+
+tmp <- tempfile(fileext = ".tsv.gz")
+download.file("https://bcdanl.github.io/data/bookdata.tsv.gz",
+              destfile = tmp, mode = "wb", quiet = TRUE)
+
+bookbaskets <- read.transactions(
+  tmp,
+  format        = "single",
+  header        = TRUE,
+  sep           = "\t",
+  cols          = c("userid", "title"),
+  rm.duplicates = TRUE
+)
+```
+
+
+```{r}
+class(bookbaskets)
+dim(bookbaskets)
+
+colnames(bookbaskets)[1:5]
+rownames(bookbaskets)[1:5]
+```
+
+
+
+```{r}
+basketSizes <- size(bookbaskets)
+summary(basketSizes)
+
+quantile(basketSizes, probs = seq(0, 1, 0.1))
+
+basketSizes_df <- data.frame(count = basketSizes)
+
+library(tidyverse)
+ggplot(basketSizes_df) +
+  # geom_density(aes(x = count)) +
+  geom_histogram(aes(x = count)) +
+  scale_x_log10() +
+  labs(title = "Distribution of Basket Sizes (log scale)", x = "Basket size", y = "Density")
+```
+
+
+```{r}
+bookCount    <- itemFrequency(bookbaskets, "absolute")
+
+bookCount
+
+bookCount_df <- data.frame(
+  item = names(bookCount),
+  n = bookCount,
+  row.names = NULL
+)
+
+bookCount_df <- bookCount_df |> 
+  arrange(-n) |> # popular books 
+  # Fraction of transactions containing the most popular book
+  mutate(pct = n / nrow(bookbaskets))
+```
+
+
+
+```{r}
+# Restrict to customers who expressed interest in at least 2 books
+bookbaskets_use <- bookbaskets[size(bookbaskets) > 1]
+dim(bookbaskets_use)
+dim(bookbaskets)
+
+rules <- apriori(
+  bookbaskets_use,
+  parameter = list(support = 0.002, confidence = 0.75)
+)
+
+
+```
+
+
+
+```{r}
+summary(rules)
+```
+
+
+
+```{r}
+measures <- interestMeasure(
+  rules,
+  measure      = c("coverage", "fishersExactTest"),
+  transactions = bookbaskets_use
+)
+summary(measures)
+```
+```{r}
+rules |>
+  sort(by = "confidence") |>
+  head(n = 5) |>
+  inspect()
+```
+
+```{r}
+top5_rules <- rules |>
+  sort(by = "confidence") |>
+  head(n = 5) |>
+  as("data.frame")
+```
+
+
+```{r}
+library(arulesViz)
+
+# Scatter plot: support vs. confidence, shaded by lift
+plot(rules,
+     method  = "scatterplot",
+     measure  = c("support", "confidence"),
+     shading  = "lift",
+     engine   = "ggplot2")
+```
+
+```{r}
+plot(rules, method = "graph",  engine = "htmlwidget")
+
+```
+
+
+
+```{r}
+#| fig-width: 10
+#| fig-height: 10
+# Graph plot: items as nodes, rules as edges
+# Subset to top 20 rules by lift for readability
+rules |>
+  sort(by = "lift") |>
+  head(n = 20) |>
+  plot(method  = "graph",
+       engine  = "ggplot2")
+```
+
+```{r}
+# Grouped matrix: LHS groups vs. RHS items
+plot(rules,
+     method  = "grouped matrix",
+     engine  = "ggplot2") +
+  coord_flip()
+```
+```{r}
+brules <- apriori(
+  bookbaskets_use,
+  parameter  = list(support = 0.001, 
+                    confidence = 0.6),
+  appearance = list(rhs = c("The Lovely Bones: A Novel"),
+                    default = "lhs")
+)
+
+summary(brules)
+
+brules |>
+  sort(by = "confidence") |>
+  lhs() |>
+  head(n = 5) |>
+  inspect()
+
+
+plot(rules, 
+     method = "graph",  
+     engine = "htmlwidget")
+
+
+plot(brules, 
+     method = "graph",  
+     engine = "htmlwidget")
+
+
+
+
+```
+
+
+```{r}
+library(tidyverse)
+library(rmarkdown)
+
+library(arules)
+library(arulesViz)
+library(plotly)
+```
+
+```{r}
+path_music <- "https://bcdanl.github.io/data/music_old.tsv"
+
+music_eg <- read.transactions(
+  file = path_music,
+  format = "single",
+  header = TRUE,
+  cols = c(1, 2),
+  rm.duplicates = TRUE
+)
+```
+
+
+# Q1
+What do the labels for the column and the row of music_eg represent?
+
+
+```{r}
+colnames(music_eg)[1:10]
+rownames(music_eg)[1:5]
+```
+
+## Q2a
+What are the first quartile, the median, the third quartile, and the maximum of transaction sizes in music_eg?
+
+
+```{r}
+musicSizes <- size(music_eg)
+summary(music_eg)
+
+quantile(musicSizes, probs = seq(0, 1, 0.1))
+
+```
+
+
+
+## Q2b
+Visualize the distribution of transaction sizes.
+
+```{r}
+
+musicSizes_df <- data.frame(count = musicSizes)
+
+ggplot(musicSizes_df) +
+  geom_density(aes(x = count)) +
+  # geom_histogram(aes(x = count)) +
+  # scale_x_log10() +
+  labs(title = "Distribution of Basket Sizes (log scale)", x = "Basket size", y = "Density")
+```
+
+
+## Q3a
+Find the top 50 most frequently occurring items in music_eg.
+Also find the top 50 least frequently occurring items in music_eg.
+
+```{r}
+musicCount    <- itemFrequency(music_eg, "absolute")
+
+musicCount_df <- data.frame(
+  item = names(musicCount),
+  n = musicCount,
+  row.names = NULL
+)
+
+musicCount_df <- musicCount_df |> 
+  arrange(-n) |> # popular books 
+  # Fraction of transactions containing the most popular book
+  mutate(pct = n / nrow(music_eg))
+```
+
+
+## Q3b
+Visualize the distribution of item occurrence.
+
+```{r}
+musicCount_df |> 
+  head(10) |> 
+  ggplot(aes(x = n,
+             y = fct_reorder(item, n))) +
+  geom_col()
+```
+
+
+## Q4
+
+```{r}
+basket_sizes <- size(music_eg)
+musicbaskets_use <- music_eg[basket_sizes > 1]
+```
+
+
+## Q4a
+
+From the subset of music_eg whose transaction size is greater than 1, find association rules with minimum support 0.01 and minimum confidence 0.5.
+
+
+```{r}
+# Restrict to customers who expressed interest in at least 2 books
+
+dim(music_eg)
+dim(musicbaskets_use)
+
+mrules <- apriori(
+  musicbaskets_use,
+  parameter = list(support = 0.01, confidence = 0.5)
+)
+```
+
+## Q4b
+
+Pick one rule from Question 4a. Interpret the following qualities of the rule you pick:
+
+support
+confidence
+coverage
+lift
+count
+
+```{r}
+summary(mrules)
+```
+
+
+## Q4c
+Find at least 5 association rules for the item you pick by setting appropriate levels of minimum support and minimum confidence.
+
+
+
+```{r}
+mrules |>
+  sort(by = "confidence") |>
+  head(n = 5) |>
+  inspect()
+```
+
+```{r}
+mrules |>
+  sort(by = "lift") |>
+  head(n = 5) |>
+  inspect()
+
+```
+
+
+
+

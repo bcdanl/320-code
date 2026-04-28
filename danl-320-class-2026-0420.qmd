@@ -1,0 +1,549 @@
+---
+title: Class Script
+subtitle: "UL"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-04-20
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+
+
+# Clustering
+
+```{r}
+library(tidyverse)
+# install.packages(
+#   c("factoextra", "cluster", "fpc")
+# )
+library(factoextra)
+library(cluster)
+library(fpc)
+
+protein <- read_csv("https://bcdanl.github.io/data/protein.csv")
+
+rowSums(protein |> select(-Country))
+
+```
+
+```{r}
+# Uses all columns except the first (Country)
+vars_to_use <- colnames(protein)[-1]
+
+protein_num <- protein[, vars_to_use]
+
+# Scale to mean 0, sd 1; stores center and scale attributes
+pmatrix <- scale( protein[, vars_to_use] )
+pcenter <- attr(pmatrix, "scaled:center")
+pscale  <- attr(pmatrix, "scaled:scale")
+
+# Convenience function to strip scale attributes
+rm_scales <- function(scaled_matrix) {
+  attr(scaled_matrix, "scaled:center") <- NULL
+  attr(scaled_matrix, "scaled:scale")  <- NULL
+  scaled_matrix
+}
+
+pmatrix <- rm_scales(pmatrix)
+
+
+
+```
+
+
+
+
+```{r}
+df_raw    <- protein |> select(FrVeg, RedMeat) |> mutate(type = "Original")
+
+df_scaled <- as.data.frame(pmatrix) |>
+               select(FrVeg, RedMeat) |>
+               mutate(type = "Scaled")
+
+# df <- bind_rows(df_raw, df_scaled) |>
+#   pivot_longer(c(FrVeg, RedMeat), names_to = "variable", values_to = "value")
+
+bind_rows(df_raw, df_scaled) |>
+  pivot_longer(c(FrVeg, RedMeat), names_to = "variable", values_to = "value") |>
+  ggplot(aes(x = value, color = variable)) +
+  geom_density(linewidth = 1) +
+  facet_wrap(~type, scales = "free") +
+  labs(title = "Raw vs. Scaled Distributions", color = NULL)
+```
+
+
+```{r}
+rownames(pmatrix) <- protein$Country
+distmat <- dist(pmatrix, method = "euclidean")
+pfit    <- hclust(distmat, method = "ward.D")
+
+p <- fviz_dend(pfit, k = 5,
+               rect        = TRUE,
+               rect_fill   = TRUE,
+               rect_border = "gray40",
+               main        = "Ward Dendrogram — Protein Data",
+               xlab        = "", ylab = "Height",
+               cex         = 0.75) +
+  theme(legend.position = "none")
+
+# Thin the branch segments by overriding linewidth in every segment layer
+for (i in seq_along(p$layers)) {
+  if (inherits(p$layers[[i]]$geom, "GeomSegment")) {
+    p$layers[[i]]$aes_params$linewidth <- 0.5
+    p$layers[[i]]$aes_params$size      <- 0.5
+  }
+}
+p
+```
+
+
+
+
+```{r}
+groups_hc <- cutree(pfit, k = 5)
+
+# Convenience function: print selected columns by cluster
+print_clusters <- function(data, groups, columns) {
+  grouped <- split(data, groups)
+  lapply(grouped, function(df) df[, columns])
+}
+
+cols_to_print <- c("Country", "RedMeat", "Fish", "FrVeg")
+print_clusters(protein, groups_hc, cols_to_print)
+```
+
+```{r}
+princ   <- prcomp(pmatrix)
+nComp   <- 2
+project <- predict(princ, pmatrix)[, 1:nComp]
+
+project_plus <- cbind(
+  as.data.frame(project),
+  cluster = as.factor(groups_hc),
+  country = protein$Country
+)
+```
+
+
+```{r}
+project_plus
+```
+
+
+```{r}
+# First 2 loading vectors (transposed for readability)
+t( round(princ$rotation, 2) )[1:2, ]
+```
+
+
+
+
+```{r}
+# First 2 loading vectors (transposed for readability)
+t( round(princ$rotation, 2) )[1:3, ]
+```
+
+
+
+
+```{r}
+ggplot(project_plus, aes(x = PC1, y = PC2)) +
+  geom_point(data = as.data.frame(project),
+             color = "darkgrey", 
+             alpha = 0.4) +
+  geom_point(aes(color = cluster)) +
+  geom_text(aes(label = country), 
+            hjust = 0, vjust = 1, 
+            size = 3) +
+  facet_wrap(~ cluster, 
+             ncol = 3, labeller = label_both) +
+  labs(title = "PCA Projection by Ward Clusters") +
+  theme(legend.position = "none")
+```
+
+```{r}
+kbest_p  <- 5
+pclusters <- kmeans(pmatrix, kbest_p, nstart = 100, iter.max = 100)
+
+pclusters$centers  # cluster centroids (in scaled units)
+pclusters$size     # number of observations per cluster
+
+groups_km <- pclusters$cluster
+print_clusters(protein, groups_km, cols_to_print)
+```
+
+```{r}
+pclusters$centers
+```
+
+```{r}
+pclusters$size     # number of observations per cluster
+
+```
+
+```{r}
+groups_km
+```
+
+```{r}
+clustering_ch  <- kmeansruns(pmatrix, krange = 1:10, criterion = "ch")
+clustering_asw <- kmeansruns(pmatrix, krange = 1:10, criterion = "asw")
+
+clustering_ch$bestk   # best k by Calinski-Harabasz
+clustering_asw$bestk  # best k by Average Silhouette Width
+
+clustering_ch$crit    # criterion scores for each k (CH)
+clustering_asw$crit   # criterion scores for each k (ASW)
+```
+
+```{r}
+fviz_nbclust(pmatrix,
+             FUNcluster = kmeans,
+             method     = "wss",     # within-cluster sum of squares
+             k.max      = 10) +
+  labs(title = "Elbow Method — Optimal k",
+       x     = "Number of Clusters k",
+       y     = "Total Within-Cluster SS")
+```
+
+
+
+```{r}
+fviz_cluster(pclusters,          # kmeans result
+             data        = pmatrix,
+             geom        = c("point", "text"),
+             ellipse.type= "convex",
+             repel       = TRUE,  # avoids label overlap
+             ggtheme     = theme_minimal(),
+             main        = "K-means Clusters (k = 5) — Protein Data")
+```
+
+
+```{r}
+fviz_nbclust(pmatrix,
+             FUNcluster = kmeans,
+             method     = "silhouette",
+             k.max      = 10) +
+  labs(title = "Average Silhouette Width — Optimal k",
+       x     = "Number of Clusters k",
+       y     = "Average Silhouette Width")
+```
+
+
+```{r}
+url_shows <- "https://bcdanl.github.io/data/nbc_show.csv"
+shows <- read_csv(url_shows) |>
+  mutate(Genre = as.factor(Genre))
+
+ggplot(shows, aes(x = GRP, y = PE, color = Genre)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  labs(title = "Gross Rating Points vs. Projected Engagement")
+```
+
+
+```{r}
+url_survey <- "https://bcdanl.github.io/data/nbc_survey.csv"
+survey <- read_csv(url_survey)
+
+# Average each question by show, then align row order to shows
+pilot_avg <- survey |>
+  select(-Viewer) |>
+  group_by(Show) |>
+  summarise(across(everything(), mean)) |>
+  filter(Show %in% shows$Show) |>
+  arrange(match(Show, shows$Show)) |>
+  column_to_rownames("Show")
+```
+
+
+```{r}
+X     <- scale(pilot_avg)
+princ_nbc <- prcomp(X, scale. = FALSE)
+
+# Scree plot using factoextra
+fviz_eig(princ_nbc, addlabels = TRUE, ncp = 10,
+         main = "Pilot-Survey PCs") 
+```
+
+
+```{r}
+summary(princ_nbc)
+```
+
+```{r}
+# First 3 loading vectors (transposed)
+t( round(princ_nbc$rotation, 1) )[1:3, ]
+```
+
+
+
+```{r}
+Z <- predict(princ_nbc, X)
+
+zpilot_df <- as.data.frame(Z[, 1:2]) |>
+  mutate(Show  = shows$Show,
+         Genre = shows$Genre,
+         PE    = shows$PE,
+         GRP   = shows$GRP,
+         PE_norm = (PE - min(PE)) / (max(PE) - min(PE)))
+
+ggplot(zpilot_df, aes(x = PC1, y = PC2, color = Genre, size = PE_norm)) +
+  geom_point(alpha = 0.5) +
+  geom_text(aes(label = Show), size = 2.5, hjust = 0, vjust = 1,
+            show.legend = FALSE) +
+  scale_size_continuous(range = c(2, 10), name = "PE (normalized)") +
+  labs(title = "NBC Pilots in Survey PC Space")
+```
+
+
+```{r}
+max_K    <- min(20, ncol(Z))
+aic_pe   <- numeric(max_K)
+aic_grp  <- numeric(max_K)
+
+for (k in seq_len(max_K)) {
+  Xk          <- cbind(1, Z[, 1:k])           # intercept + first k PCs
+  aic_pe[k]   <- AIC(lm(shows$PE  ~ Z[, 1:k]))
+  aic_grp[k]  <- AIC(lm(shows$GRP ~ Z[, 1:k]))
+}
+
+cat("Lowest AIC for PE  achieved with K =", which.min(aic_pe),  "PCs\n")
+cat("Lowest AIC for GRP achieved with K =", which.min(aic_grp), "PCs\n")
+```
+
+
+```{r}
+tibble(K = 1:max_K, PE = aic_pe, GRP = aic_grp) |>
+  pivot_longer(c(PE, GRP), names_to = "Outcome", values_to = "AIC") |>
+  ggplot(aes(x = K, y = AIC, color = Outcome)) +
+  geom_line() + geom_point() +
+  facet_wrap(~Outcome, ncol = 1, scales = "free") +
+  scale_x_continuous(breaks = 1:max_K) +
+  labs(title = "PCR Model Comparison: AIC vs. Number of Principal Components",
+       x = "Number of Principal Components (K)", y = "AIC")
+```
+
+
+
+
+# Classwork 10
+
+```{r}
+library(tidyverse)
+library(factoextra)
+library(cluster)
+library(fpc)
+library(skimr)
+
+wine <- read_csv("https://bcdanl.github.io/data/wine_data.csv")
+```
+
+## Question 1. Inspect the data
+
+
+```{r}
+wine |> 
+  skim()
+```
+
+## Question 2. Create a cleaned analysis data set
+
+```{r}
+wine_clust <- wine |> 
+  select(-quality, -color)
+
+wine_scaled <- wine_clust |> 
+  scale()
+
+dim(wine_scaled)
+```
+
+
+## Question 3. Fit a k-means model with 2 clusters
+
+```{r}
+km2 <- kmeans(wine_scaled, centers = 2, nstart = 25)
+
+```
+
+
+```{r}
+
+km2$size
+```
+
+```{r}
+
+km2$centers
+```
+
+
+```{r}
+km_centers <- km2$centers |> 
+  as_tibble() |> 
+  t() |> 
+  as.data.frame() |> 
+  mutate(diff = V2 - V1) |> 
+  arrange(-abs(diff))
+
+```
+
+
+
+## Question 4. Add the cluster labels back to the data and profile the clusters
+
+
+```{r}
+length(km2$cluster)
+```
+
+```{r}
+wine_km <- wine |> 
+  mutate(cluster = km2$cluster)
+```
+
+
+
+```{r}
+# alcohol,
+# acidity_volatile,
+# residual_sugar,
+# so2_tot, and
+# quality.
+
+wine_km |> 
+  group_by(cluster) |> 
+  summarise(alcohol = mean(alcohol),
+            acidity_volatile = mean(acidity_volatile),
+            residual_sugar = mean(residual_sugar),
+            so2_tot = mean(so2_tot),
+            quality = mean(quality)
+            )
+
+```
+
+
+## Question 5. Compare cluster membership with wine color
+
+
+```{r}
+wine_km |> 
+  count(color, cluster) |> 
+  group_by(color) |> 
+  mutate(pct = n / sum(n)) |> 
+  ungroup()
+```
+
+## Question 6. Make one simple scatter plot
+
+
+```{r}
+wine_km |> 
+  ggplot(aes(x = so2_tot,
+             y = acidity_volatile,
+             color = factor(cluster))) +
+  geom_point(alpha = .1)
+```
+
+
+## Question 7. Try several values of k
+
+```{r}
+
+km2$tot.withinss
+
+km3 <- kmeans(wine_scaled, centers = 3, nstart = 25)
+km4 <- kmeans(wine_scaled, centers = 4, nstart = 25)
+km5 <- kmeans(wine_scaled, centers = 5, nstart = 25)
+km6 <- kmeans(wine_scaled, centers = 6, nstart = 25)
+
+tot.withinss <- c(
+  "km2" = km2$tot.withinss,
+  "km3" = km3$tot.withinss,
+  "km4" = km4$tot.withinss,
+  "km5" = km5$tot.withinss,
+  "km6" = km6$tot.withinss
+)
+
+tot.withinss
+which.min(tot.withinss)
+```
+
+```{r}
+clustering_ch  <- kmeansruns(wine_scaled, krange = 2:6, criterion = "ch")
+clustering_asw <- kmeansruns(wine_scaled, krange = 2:6, criterion = "asw")
+
+clustering_ch$bestk   # best k by Calinski-Harabasz
+clustering_asw$bestk  # best k by Average Silhouette Width
+
+# clustering_ch$crit    # criterion scores for each k (CH)
+# clustering_asw$crit   # criterion scores for each k (ASW)
+```
+
+```{r}
+fviz_nbclust(wine_scaled,
+             FUNcluster = kmeans,
+             method     = "wss",     # within-cluster sum of squares
+             k.max      = 10) +
+  labs(title = "Elbow Method — Optimal k",
+       x     = "Number of Clusters k",
+       y     = "Total Within-Cluster SS")
+```
+
+## Question 8.
+
+
+```{r}
+princ_wine <- prcomp(wine_scaled, scale. = FALSE)
+
+# Scree plot using factoextra
+fviz_eig(princ_wine, addlabels = TRUE, ncp = 10,
+         main = "Wine PCs") 
+```
+
+
+```{r}
+# Cumulative variance summary
+summary(princ_wine)$importance[, 1:5]
+```
+
+
+```{r}
+# First 3 loading vectors (transposed)
+t( round(princ_wine$rotation, 1) )[1:2, ]
+```
+
+## Question 10.
+
+```{r}
+Z <- predict(princ_wine, wine_scaled)
+
+zpilot_df <- as.data.frame(Z[, 1:2]) |>
+  mutate(Color  = wine$color,
+         Quality = wine$quality)
+
+ggplot(zpilot_df, aes(x = PC1, y = PC2, color = Color, size = Quality)) +
+  geom_point(alpha = 0.1) +
+  scale_size_continuous(range = c(3, 9), name = "Wine Quality") +
+  labs(title = "Wine in PC Space")
+```
+

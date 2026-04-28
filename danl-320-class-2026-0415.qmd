@@ -1,0 +1,238 @@
+---
+title: Class Script
+subtitle: "UL"
+author:
+  - name: Byeong-Hak Choe
+    
+date: 2026-04-15
+
+execute: 
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 3
+    number-sections: true
+    code-tools: true
+    highlight-style: atom-one
+---
+
+
+
+# Clustering
+
+```{r}
+library(tidyverse)
+# install.packages(
+#   c("factoextra", "cluster", "fpc")
+# )
+library(factoextra)
+library(cluster)
+library(fpc)
+
+protein <- read_csv("https://bcdanl.github.io/data/protein.csv")
+
+rowSums(protein |> select(-Country))
+
+```
+
+```{r}
+# Uses all columns except the first (Country)
+vars_to_use <- colnames(protein)[-1]
+
+protein_num <- protein[, vars_to_use]
+
+# Scale to mean 0, sd 1; stores center and scale attributes
+pmatrix <- scale( protein[, vars_to_use] )
+pcenter <- attr(pmatrix, "scaled:center")
+pscale  <- attr(pmatrix, "scaled:scale")
+
+# Convenience function to strip scale attributes
+rm_scales <- function(scaled_matrix) {
+  attr(scaled_matrix, "scaled:center") <- NULL
+  attr(scaled_matrix, "scaled:scale")  <- NULL
+  scaled_matrix
+}
+
+pmatrix <- rm_scales(pmatrix)
+
+
+
+```
+
+
+
+
+```{r}
+df_raw    <- protein |> select(FrVeg, RedMeat) |> mutate(type = "Original")
+
+df_scaled <- as.data.frame(pmatrix) |>
+               select(FrVeg, RedMeat) |>
+               mutate(type = "Scaled")
+
+# df <- bind_rows(df_raw, df_scaled) |>
+#   pivot_longer(c(FrVeg, RedMeat), names_to = "variable", values_to = "value")
+
+bind_rows(df_raw, df_scaled) |>
+  pivot_longer(c(FrVeg, RedMeat), names_to = "variable", values_to = "value") |>
+  ggplot(aes(x = value, color = variable)) +
+  geom_density(linewidth = 1) +
+  facet_wrap(~type, scales = "free") +
+  labs(title = "Raw vs. Scaled Distributions", color = NULL)
+```
+
+
+```{r}
+rownames(pmatrix) <- protein$Country
+distmat <- dist(pmatrix, method = "euclidean")
+pfit    <- hclust(distmat, method = "ward.D")
+
+p <- fviz_dend(pfit, k = 5,
+               rect        = TRUE,
+               rect_fill   = TRUE,
+               rect_border = "gray40",
+               main        = "Ward Dendrogram — Protein Data",
+               xlab        = "", ylab = "Height",
+               cex         = 0.75) +
+  theme(legend.position = "none")
+
+# Thin the branch segments by overriding linewidth in every segment layer
+for (i in seq_along(p$layers)) {
+  if (inherits(p$layers[[i]]$geom, "GeomSegment")) {
+    p$layers[[i]]$aes_params$linewidth <- 0.5
+    p$layers[[i]]$aes_params$size      <- 0.5
+  }
+}
+p
+```
+
+
+
+
+```{r}
+groups_hc <- cutree(pfit, k = 5)
+
+# Convenience function: print selected columns by cluster
+print_clusters <- function(data, groups, columns) {
+  grouped <- split(data, groups)
+  lapply(grouped, function(df) df[, columns])
+}
+
+cols_to_print <- c("Country", "RedMeat", "Fish", "FrVeg")
+print_clusters(protein, groups_hc, cols_to_print)
+```
+
+```{r}
+princ   <- prcomp(pmatrix)
+nComp   <- 2
+project <- predict(princ, pmatrix)[, 1:nComp]
+
+project_plus <- cbind(
+  as.data.frame(project),
+  cluster = as.factor(groups_hc),
+  country = protein$Country
+)
+```
+
+
+```{r}
+project_plus
+```
+
+
+```{r}
+# First 2 loading vectors (transposed for readability)
+t( round(princ$rotation, 2) )[1:2, ]
+```
+
+
+
+
+```{r}
+# First 2 loading vectors (transposed for readability)
+t( round(princ$rotation, 2) )[1:3, ]
+```
+
+
+
+
+```{r}
+ggplot(project_plus, aes(x = PC1, y = PC2)) +
+  geom_point(data = as.data.frame(project),
+             color = "darkgrey", 
+             alpha = 0.4) +
+  geom_point(aes(color = cluster)) +
+  geom_text(aes(label = country), 
+            hjust = 0, vjust = 1, 
+            size = 3) +
+  facet_wrap(~ cluster, 
+             ncol = 3, labeller = label_both) +
+  labs(title = "PCA Projection by Ward Clusters") +
+  theme(legend.position = "none")
+```
+
+```{r}
+kbest_p  <- 5
+pclusters <- kmeans(pmatrix, kbest_p, nstart = 100, iter.max = 100)
+
+pclusters$centers  # cluster centroids (in scaled units)
+pclusters$size     # number of observations per cluster
+
+groups_km <- pclusters$cluster
+print_clusters(protein, groups_km, cols_to_print)
+```
+
+```{r}
+pclusters$centers
+```
+
+```{r}
+pclusters$size     # number of observations per cluster
+
+```
+
+```{r}
+groups_km
+```
+
+```{r}
+clustering_ch  <- kmeansruns(pmatrix, krange = 1:10, criterion = "ch")
+clustering_asw <- kmeansruns(pmatrix, krange = 1:10, criterion = "asw")
+
+clustering_ch$bestk   # best k by Calinski-Harabasz
+clustering_asw$bestk  # best k by Average Silhouette Width
+
+clustering_ch$crit    # criterion scores for each k (CH)
+clustering_asw$crit   # criterion scores for each k (ASW)
+```
+
+```{r}
+fviz_nbclust(pmatrix,
+             FUNcluster = kmeans,
+             method     = "wss",     # within-cluster sum of squares
+             k.max      = 10) +
+  labs(title = "Elbow Method — Optimal k",
+       x     = "Number of Clusters k",
+       y     = "Total Within-Cluster SS")
+```
+
+
+
+```{r}
+fviz_cluster(pclusters,          # kmeans result
+             data        = pmatrix,
+             geom        = c("point", "text"),
+             ellipse.type= "convex",
+             repel       = TRUE,  # avoids label overlap
+             ggtheme     = theme_minimal(),
+             main        = "K-means Clusters (k = 5) — Protein Data")
+```
+
